@@ -29,15 +29,24 @@ Estudantes universitários brasileiros enfrentam uma combinação de fragilidade
 3. **Insegurança no trajeto como barreira à participação acadêmica, sobretudo para mulheres.** Estudo exploratório conduzido na UFRJ (SILVEIRA, 2019/2024) com 51 respondentes de um curso de graduação revela que quanto maior o número de baldeações no trajeto até o campus, maior a frequência de medidas de precaução de segurança adotadas pelos estudantes — e que essa exigência recai de forma desproporcional sobre as mulheres. O mesmo estudo mostra que 80,4% dos respondentes já deixaram de participar de alguma atividade acadêmica em razão do deslocamento necessário para chegar à universidade.
 4. **Viabilidade e barreiras psicológicas da carona entre estudantes.** Pesquisa com estudantes da UFPE (SILVA; ANDRADE; MAIA, 2019), baseada em regressão logística sobre 465 respostas, identifica que os principais fatores que aumentam a adesão a um sistema de carona dinâmica são o acesso a um perfil do usuário antes da viagem (+163% de chance de adesão), a possibilidade de alternar entre motorista e passageiro (+148%) e a interação social (+123%); em contrapartida, viajar com desconhecidos é o maior fator de resistência (-70%), especialmente entre mulheres. Esse achado reforça que a **verificação de identidade e vínculo institucional** — e não apenas o algoritmo de rota — é o que destrava a confiança necessária para o uso da carona compartilhada.
 
+## 4. Esboço da Solução
+
+A **UniRide** é uma plataforma de carona colaborativa que coloca a **verificação de identidade institucional** e a **segurança ativa** no centro da experiência, respondendo diretamente à principal barreira psicológica identificada na literatura sobre adesão a caronas: o medo de viajar com desconhecidos.
+
+### O que o sistema fará:
+* **Autenticação por matrícula:** validação obrigatória de vínculo ativo com a instituição (e-mail institucional e/ou número de matrícula) antes de liberar o cadastro como motorista ou passageiro.
+* **Perfil verificado:** exibição de dados básicos do motorista, do veículo e histórico de avaliações antes da confirmação da carona — resposta direta ao fator "perfil do usuário", apontado como o mais relevante para aumentar a adesão (SILVA; ANDRADE; MAIA, 2019).
+* **Match de rotas:** conexão entre motoristas e passageiros com origem, destino e horário de aula compatíveis.
+* **Rateio simbólico e transparente:** sugestão automática de contribuição proporcional ao trajeto, sem fins lucrativos.
+* **Módulo de segurança ativa:** checagem de embarque, avaliação mútua ao final da viagem, compartilhamento de trajeto em tempo real e botão de emergência.
+* **Opção de grupos por afinidade/gênero:** possibilidade de restringir a busca de carona a grupos específicos (ex.: apenas mulheres), estratégia associada na literatura ao aumento da confiança entre usuários (SILVA; ANDRADE; MAIA, 2019).
+
 ## Referências
 
-* *ANDIFES.* V Pesquisa Nacional de Perfil dos Graduandos das IFES. Associação Nacional dos Dirigentes das Instituições Federais de Ensino Superior, Brasília, 2019.
-https://www.andifes.org.br/wp-content/uploads/2019/05/V-Pesquisa-Nacional-de-Perfil-Socioeconomico-e-Cultural-dos-as-Graduandos-as-das-IFES-2018.pdf
+* [*ANDIFES.* V Pesquisa Nacional de Perfil dos Graduandos das IFES. Associação Nacional dos Dirigentes das Instituições Federais de Ensino Superior, Brasília, 2019.](https://www.andifes.org.br/wp-content/uploads/2019/05/V-Pesquisa-Nacional-de-Perfil-Socioeconomico-e-Cultural-dos-as-Graduandos-as-das-IFES-2018.pdf)
 
-* *SERASA.* 66% dos universitários endividados já cortaram itens básicos para pagar mensalidade, revela Serasa. Pesquisa Serasa/Opinion Box, jan. 2026. Disponível em: <https://www.serasa.com.br/imprensa/universitarios-endividados-cortam-itens-basicos-para-pagar-mensalidade-serasa/>.
+* [*SERASA.* 66% dos universitários endividados já cortaram itens básicos para pagar mensalidade, revela Serasa. Pesquisa Serasa/Opinion Box, jan. 2026.](https://www.serasa.com.br/imprensa/universitarios-endividados-cortam-itens-basicos-para-pagar-mensalidade-serasa/>.)
 
-* **SILVEIRA, Amanda Almeida da.** *O impacto da mobilidade urbana no acesso e permanência na universidade: estudo sob a perspectiva de gênero*. V ENEPCP – Encontro Nacional de Ensino e Pesquisa do Campo de Públicas, UFRJ.
-https://anepecp.org/ojs/index.php/br/article/view/494/76
+* [**SILVEIRA, Amanda Almeida da.** *O impacto da mobilidade urbana no acesso e permanência na universidade: estudo sob a perspectiva de gênero*. V ENEPCP – Encontro Nacional de Ensino e Pesquisa do Campo de Públicas, UFRJ.](https://anepecp.org/ojs/index.php/br/article/view/494/76)
 
-* **SILVA, Laize Andréa de Souza; ANDRADE, Maurício Oliveira de; MAIA, Maria Leonor Alves.** *Fatores influentes para a adesão de alunos a sistema de carona dinâmica em campus universitário*. Revista Transportes, v. 27, n. 2, p. 17–30, 2019. DOI: 10.14295/transportes.v27i2.1521.
-https://www.researchgate.net/publication/335561229_Fatores_influentes_para_a_adesao_de_alunos_a_sistema_de_carona_dinamica_em_campus_universitario
+* [**SILVA, Laize Andréa de Souza; ANDRADE, Maurício Oliveira de; MAIA, Maria Leonor Alves.** *Fatores influentes para a adesão de alunos a sistema de carona dinâmica em campus universitário*. Revista Transportes, v. 27, n. 2, p. 17–30, 2019. DOI: 10.14295/transportes.v27i2.1521.](https://www.researchgate.net/publication/335561229_Fatores_influentes_para_a_adesao_de_alunos_a_sistema_de_carona_dinamica_em_campus_universitario)
