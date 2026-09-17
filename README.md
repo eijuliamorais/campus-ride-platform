@@ -27,7 +27,30 @@ Estudantes universitários brasileiros enfrentam uma combinação de fragilidade
 1. *Fragilidade financeira do estudante e o peso do deslocamento.* Levantamento da Serasa em parceria com o Instituto Opinion Box (jan. 2026), com 936 universitários endividados, mostra que 66% já deixaram de comprar itens básicos — entre eles, explicitamente, transporte — para conseguir pagar a mensalidade, e que 48% chegaram a trancar o curso por não conseguir manter os pagamentos em dia (SERASA, 2026). Isso evidencia que qualquer custo recorrente e evitável, como o do deslocamento diário, pode ser o fator que empurra o estudante para a evasão.
 2. *Peso do transporte no orçamento familiar.* A V Pesquisa Nacional de Perfil dos Graduandos das IFES (ANDIFES, 2019) mostra que mais de 70% dos estudantes de universidades federais têm renda familiar per capita de até 1,5 salário mínimo, e aponta o transporte como um dos principais gastos diretos de manutenção do estudante.
 3. **Insegurança no trajeto como barreira à participação acadêmica, sobretudo para mulheres.** Estudo exploratório conduzido na UFRJ (SILVEIRA, 2019/2024) com 51 respondentes de um curso de graduação revela que quanto maior o número de baldeações no trajeto até o campus, maior a frequência de medidas de precaução de segurança adotadas pelos estudantes — e que essa exigência recai de forma desproporcional sobre as mulheres. O mesmo estudo mostra que 80,4% dos respondentes já deixaram de participar de alguma atividade acadêmica em razão do deslocamento necessário para chegar à universidade.
-4. **Viabilidade e barreiras psicológicas da carona entre estudantes.** Pesquisa com estudantes da UFPE (SILVA; ANDRADE; MAIA, 2019), baseada em regressão logística sobre 465 respostas, identifica que os principais fatores que aumentam a adesão a um sistema de carona dinâmica são o acesso a um perfil do usuário antes da viagem (+163% de chance de adesão), a possibilidade de alternar entre motorista e passageiro (+148%) e a interação social (+123%); em contrapartida, viajar com desconhecidos é o maior fator de resistência (-70%), especialmente entre mulheres. Esse achado reforça que a **verificação de identidade e vínculo institucional** — e não apenas o algoritmo de rota — é o que destrava a confiança necessária para o uso da carona compartilhada.
+4. **Viabilidade e barreiras psicológicas da carona entre estudantes.** Pesquisa com estudantes da UFPE (SILVA; ANDRADE; MAIA, 2019), baseada em regressão logística sobre 465 respostas, identifica que os principais fatores que aumentam a adesão a um sistema de carona dinâmica são o acesso a um perfil do usuário antes da viagem (+163% de chance de adesão), a possibilidade de alternar entre motorista e passageiro (+148%) e a interação social (+123%); em contrapartida, viajar com desconhecidos é o maior fator de resistência (-70%), especialmente entre mulheres. Esse achado reforça que a **verificação de identidade e vínculo institucional** — e não apenas o algoritmo de rota — é o que destrava a confiança necessária para o uso da carona compartilhada.4. 
+
+## 3. Impacto Social Esperado
+
+### 3.1 - Quem é beneficiado?
+* *Estudantes passageiros:* especialmente estudantes de baixa renda, mulheres e quem depende de transporte público com múltiplas baldeações para chegar ao campus.
+* *Estudantes motoristas:* alunos que já fazem o trajeto de carro e passam a dividir os custos de combustível.
+* *Instituição de ensino:* redução indireta da evasão associada a dificuldades de deslocamento e de manutenção financeira do curso.
+
+### 3.2 - De que forma são beneficiados?
+* *Redução de custo do deslocamento*, aliviando um gasto que, segundo a Serasa (2026), já leva estudantes a cortar itens básicos para não atrasar a mensalidade.
+* *Redução da exposição a situações de insegurança no trajeto*, por meio de identidade verificada, avaliação mútua entre usuários e botão de emergência.
+* *Aumento da frequência em atividades acadêmicas* que hoje deixam de ocorrer por dificuldade ou insegurança no deslocamento.
+
+### 3.3 - Como o impacto será medido? (Métricas de Sucesso)
+
+| Indicador de Impacto | Forma de Mensuração (dado próprio do sistema) | Objetivo |
+| :--- | :--- | :--- |
+| *Economia gerada por estudante* | Soma do valor de rateio registrado nas viagens concluídas por usuário, dividido pelo período de uso | Reduzir o gasto do estudante com deslocamento |
+| *Sensação de segurança percebida* | Média das notas de avaliação pós-viagem (campo obrigatório ao final de cada carona) | Aumentar a proporção de viagens avaliadas como seguras |
+| *Retenção de uso* | % de usuários que fazem uma nova viagem em até 30 dias após a primeira | Indicar que o usuário confiou o suficiente para repetir o uso |
+| *Adesão de usuárias mulheres* | % de motoristas/passageiras mulheres cadastradas e com ao menos 1 viagem concluída | Verificar se a proposta de segurança reduz a barreira de gênero apontada na literatura (SILVA; ANDRADE; MAIA, 2019) |
+| *Efetividade do match* | % de solicitações de carona que resultam em viagem concluída (não canceladas/sem match) | Validar se o algoritmo de rotas está funcionando na prática |
+| *Volume de caronas concluídas* | Total de viagens com status "concluída" e avaliação preenchida | Medir a adesão e a confiança da comunidade no sistema |
 
 ## 4. Esboço da Solução
 
