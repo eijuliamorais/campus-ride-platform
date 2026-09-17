@@ -50,3 +50,4 @@ A **UniRide** é uma plataforma de carona colaborativa que coloca a **verificaç
 * [**SILVEIRA, Amanda Almeida da.** *O impacto da mobilidade urbana no acesso e permanência na universidade: estudo sob a perspectiva de gênero*. V ENEPCP – Encontro Nacional de Ensino e Pesquisa do Campo de Públicas, UFRJ.](https://anepecp.org/ojs/index.php/br/article/view/494/76)
 
 * [**SILVA, Laize Andréa de Souza; ANDRADE, Maurício Oliveira de; MAIA, Maria Leonor Alves.** *Fatores influentes para a adesão de alunos a sistema de carona dinâmica em campus universitário*. Revista Transportes, v. 27, n. 2, p. 17–30, 2019. DOI: 10.14295/transportes.v27i2.1521.](https://www.researchgate.net/publication/335561229_Fatores_influentes_para_a_adesao_de_alunos_a_sistema_de_carona_dinamica_em_campus_universitario)
+
