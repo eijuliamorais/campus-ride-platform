@@ -1,24 +1,5 @@
 # UniRide — Parte 2: Arquitetura
 
-> **Este documento é a Parte 2 (Arquitetura) do trabalho prático da disciplina de Sistemas Distribuídos (GCC129). Ele transforma a ideia da UniRide, definida na Parte 1, em um projeto arquitetural documentado: microsserviços com fronteiras justificadas, contratos REST, API Gateway, Backend for Frontend, banco de dados por serviço, SAGA e CQRS. O foco é a arquitetura distribuída em si; a implementação fica para a Parte 4.**
-
----
-
-## Integrantes
-
-- [Clarisse Lacerda Pimentel](https://github.com/Clarisse-Pimentel)
-- [Júlia Aparecida de Faria Morais](https://github.com/eijuliamorais)
-- [Lucas Torquato de Melo](https://github.com/TorquatoLucas)
-- [Luiz Francisco Sousa de Jesus](https://github.com/Frannchesco)
-- [Maria Rita Ribeiro Resende](https://github.com/mariaritaresende)
-
-## Conteúdo deste material
-
-- Este documento (`ARQUITETURA.md`), com as seções 4.1 a 4.7 do enunciado.
-- Pasta `Diagramas` contendo os diagramas.
-
----
-
 ## Visão geral
 
 A UniRide é decomposta em **cinco microsserviços de domínio**, atrás de um API Gateway e de dois BFFs (um para o aplicativo do estudante e outro para o painel administrativo da universidade). Solicitar uma carona é uma **SAGA orquestrada** e a busca de caronas compatíveis usa **CQRS**. Cada decisão parte do que a Parte 1 define como centro da solução: conectar estudantes para compartilhar caronas, verificar o vínculo institucional, combinar rotas, dividir custos de forma simbólica e aumentar a segurança.
@@ -53,7 +34,7 @@ A UniRide é decomposta em **cinco microsserviços de domínio**, atrás de um A
 
 ## 4.1 Decomposição em microsserviços
 
-Os cortes seguem responsabilidades de negócio (*bounded contexts*), não entidades: cada serviço é dono das suas regras, dos seus dados e do seu ritmo de mudança. São **cinco serviços de domínio**. Nenhum deles existe só para enfeitar o diagrama: cada um corresponde a um grupo de funcionalidades da Parte 1.
+Os cortes seguem responsabilidades de negócio (*bounded contexts*), não entidades: cada serviço é dono das suas regras, dos seus dados e do seu ritmo de mudança. São **cinco serviços de domínio**.
 
 ### Serviços, responsabilidades e donos dos dados
 
@@ -73,9 +54,9 @@ Quatro critérios decidiram cada fronteira: dono dos dados e das invariantes; mo
 
 | Alternativa descartada | Por que descartamos |
 | --- | --- |
-| Serviço de Pagamentos | O README fala em rateio simbólico, sem fins lucrativos. Não há cobrança, carteira nem Pix dentro da UniRide: o serviço de Rateio só calcula e registra a contribuição estimada. Criar Pagamentos seria inventar escopo |
+| Serviço de Pagamentos | Não há cobrança, carteira nem Pix dentro da UniRide: o serviço de Rateio só calcula e registra a contribuição estimada. |
 | Um serviço de *matching* separado | A busca é uma consulta derivada das ofertas de carona. Separar duplicaria os dados e exigiria *join* síncrono. Ela vive no lado de leitura do `solicitacoes-service` (CQRS, 4.7) |
-| Solicitações dentro do `caronas-service` | O `caronas-service` é dono da capacidade (vagas nunca excedem o total); a solicitação é a intenção do passageiro, com ciclo próprio, idempotência e a coordenação da SAGA. Juntar os dois deixaria a SAGA sem um coordenador que não seja participante |
+| Solicitações dentro do `caronas-service` | O `caronas-service` é dono da capacidade (vagas nunca excedem o total); a solicitação é a intenção do passageiro, com ciclo próprio, invariabilidade e a coordenação da SAGA. Juntar os dois deixaria a SAGA sem um coordenador que não seja participante |
 | Embarque, trajeto e emergência em serviços próprios | São a mesma capacidade (segurança durante a viagem), com os mesmos requisitos de disponibilidade e retenção curta de localização. Ficam dentro de Viagens e Segurança |
 | Segurança dentro do `caronas-service` | O alerta de emergência não pode depender de a busca ou a oferta de caronas estarem no ar, e a localização tem retenção curta (LGPD) |
 | Avaliações e Rateio em serviços separados | Os dois acontecem depois da viagem, são pequenos e compartilham a ligação com a solicitação. Mantê-los juntos reduz complexidade. Podem se separar no futuro se o rateio crescer |
@@ -89,7 +70,7 @@ São três coisas diferentes. Fazer login não comprova que o vínculo acadêmic
 | Etapa | Quem faz | Como | Se falhar |
 | --- | --- | --- | --- |
 | Autenticação (quem é a pessoa) | `usuarios-service` | E-mail e senha; emite JWT de acesso (15 min) e de renovação | `401`; no máximo 5 tentativas por minuto por IP no login |
-| Verificação institucional (é estudante com vínculo ativo) | `usuarios-service` | Código enviado ao e-mail do domínio da instituição, mais conferência da matrícula contra a base de matrículas ativas da instituição (premissa de projeto: carga periódica ou integração, a definir na Parte 4). Ao confirmar, o token passa a trazer `verificado=true` | Código errado: `422`; três erros bloqueiam por 15 min. Código vencido: `410`. Matrícula inativa: `422`. A conta continua `NAO_VERIFICADO` |
+| Verificação institucional (é estudante com vínculo ativo) | `usuarios-service` | Código enviado ao e-mail do domínio da instituição. Ao confirmar o código, o token passa a trazer verificado=`true`. | Código errado: `422`; três erros bloqueiam por 15 min. Código vencido: `410`. E-mail fora do domínio autorizado: `422`. A conta continua NAO_VERIFICADO até a confirmação. |
 | Autorização (o que pode fazer) | Gateway (regra grossa) e cada serviço (regra fina) | Papéis `ESTUDANTE` e `ADMIN_INSTITUCIONAL`; claim `verificado`; "só o dono edita a carona", "só o passageiro cancela a sua solicitação" | `403` |
 
 Reação à falha de verificação:
