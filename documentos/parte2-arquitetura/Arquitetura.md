@@ -159,3 +159,219 @@ flowchart LR
 | `avaliacoes-rateio.eventos` | avaliacoes-rateio | `ContribuicaoEstimadaRegistrada`, `RegistroContribuicaoFalhou`, `ContribuicaoCancelada`, `AcertoRegistrado`, `AvaliacaoRegistrada`, `ReputacaoAtualizada` | solicitacoes |
 | `caronas.comandos` | solicitacoes (orquestrador) | `ReservarVaga`, `ConfirmarVaga`, `LiberarVaga` | caronas |
 | `avaliacoes-rateio.comandos` | solicitacoes (orquestrador) | `RegistrarContribuicaoEstimada`, `CancelarContribuicao` | avaliacoes-rateio |
+
+---
+
+## 4.2 API REST
+
+Cada serviço expõe um contrato REST versionado em `/api/v1`. Recursos são substantivos no plural, a semântica vem do verbo HTTP, e transições de estado viram sub-recursos (`/cancelamento`, `/partida`) em vez de verbos no caminho. Os contratos completos, em OpenAPI 3.0.3, estão na pasta `openapi/` (56 operações em 5 arquivos); as tabelas abaixo os resumem.
+
+### Convenções comuns
+
+| Tema | Regra |
+| --- | --- |
+| Verbos | `GET` lê (seguro e idempotente); `POST` cria ou dispara transição; `PUT` substitui; `PATCH` altera parcialmente; `DELETE` remove |
+| Sucesso | `200` leitura e alteração; `201` criação, com `Location`; `202` aceito para processamento assíncrono (SAGA); `204` sem corpo (remoção, envio de posição) |
+| Erro do cliente | `400` requisição malformada; `401` sem token ou expirado; `403` sem permissão (conta não verificada, público da carona); `404`; `409` conflito de estado (sem vaga, duplicidade); `410` link ou código expirado; `412` falha em `If-Match`; `422` regra de negócio violada; `429` limite excedido, com `Retry-After` |
+| Corpo de erro | `application/problem+json` (RFC 9457): `type`, `title`, `status`, `detail`, `traceId` |
+| Idempotência | `Idempotency-Key` (UUID) obrigatório em `POST /api/v1/solicitacoes` e `POST /api/v1/avaliacoes`; repetir devolve a resposta original |
+| Concorrência | `ETag` em recursos editáveis e `If-Match` em `PATCH`; divergência devolve `412` |
+| Paginação | `?pagina=0&tamanho=20`; coleções trazem `_links.proxima` e `_links.anterior` |
+| Autorização | JWT `Bearer`; `/api/v1/indicadores/*` exige `ADMIN_INSTITUCIONAL`, devolve só agregados e não é exposto pelo gateway |
+
+### Estratégia de versionamento
+
+**Decisão:** versão no caminho da URI (`/api/v1/...`).
+
+- **Por quê:** a versão fica visível nas regras do gateway, nos logs e nos testes; duas versões convivem como rotas distintas para *deploys* distintos; o aplicativo móvel não atualiza junto com o servidor, então a versão precisa ser explícita.
+- **Alternativas descartadas:** versão em cabeçalho ou *media type* deixa a URI mais limpa, mas é invisível ao roteamento por prefixo e mais difícil de testar e depurar; parâmetro de consulta mistura versão com filtro.
+- **Política:** mudança aditiva (campo opcional novo, endpoint novo) permanece em `v1`. Mudança que quebra (remover ou renomear campo, mudar tipo, mudar status) cria `v2`. A versão anterior segue por pelo menos 90 dias, sinalizada com os cabeçalhos `Deprecation` e `Sunset` (RFC 8594).
+- **Duas camadas:** as APIs dos serviços (`/api/v1`) e as APIs dos BFFs (`/app/v1`, `/painel/v1`) têm versões independentes. As dos BFFs são as de vida longa, porque o aplicativo instalado depende delas.
+- **Eventos:** o envelope traz `schemaVersion`; só mudanças aditivas, e consumidores ignoram campos desconhecidos.
+
+### Contratos por serviço
+
+#### usuarios-service
+
+Arquivo: `openapi/usuarios-service.yaml`
+
+| Método | Caminho | Descrição | Sucesso | Erros |
+| --- | --- | --- | --- | --- |
+| POST | `/api/v1/usuarios` | Cadastro (situação inicial `NAO_VERIFICADO`) | 201 | 409, 422, 429 |
+| POST | `/api/v1/verificacoes` | Pede a verificação do vínculo; envia código ao e-mail institucional | 202 | 404, 422, 429 |
+| POST | `/api/v1/verificacoes/{id}/confirmacao` | Confirma o código | 200 | 400, 410, 422 |
+| POST | `/api/v1/sessoes` | Login; emite token de acesso e de renovação | 201 | 401, 403, 429 |
+| POST | `/api/v1/sessoes/{id}/renovacao` | Renova o token de acesso | 200 | 401 |
+| DELETE | `/api/v1/sessoes/{id}` | Logout | 204 | 404 |
+| GET | `/api/v1/usuarios/{id}` | Perfil público (nome, foto, vínculo verificado, veículo) | 200 | 404 |
+| GET / PATCH | `/api/v1/usuarios/me` | Perfil completo; alteração com `If-Match` | 200 | 401, 412, 422 |
+| GET / POST | `/api/v1/usuarios/me/veiculos` | Lista e cadastra veículos | 200 / 201 | 403, 422 |
+| PUT / DELETE | `/api/v1/usuarios/me/veiculos/{veiculoId}` | Atualiza e remove | 200 / 204 | 404, 409, 422 |
+| GET / POST | `/api/v1/usuarios/me/contatos-emergencia` | Lista e cadastra contatos de emergência | 200 / 201 | 422 |
+| DELETE | `/api/v1/usuarios/me/contatos-emergencia/{id}` | Remove contato | 204 | 404 |
+| PATCH | `/api/v1/usuarios/{id}/situacao` | Suspende ou reativa (administração) | 200 | 403, 404 |
+| GET | `/api/v1/usuarios/{id}/verificacao` | Situação da verificação do vínculo (administração) | 200 | 403, 404 |
+| GET | `/api/v1/chaves-publicas` | Chaves públicas (JWKS) para validar o JWT | 200 | — |
+| GET | `/api/v1/indicadores/adesao-feminina` | Adesão de mulheres (indicador 4) | 200 | 403, 422 |
+
+#### caronas-service
+
+Arquivo: `openapi/caronas-service.yaml`
+
+| Método | Caminho | Descrição | Sucesso | Erros |
+| --- | --- | --- | --- | --- |
+| POST | `/api/v1/caronas` | Oferece carona (rota, horário, vagas, público) | 201 | 403, 422 |
+| GET | `/api/v1/caronas` | Minhas caronas como motorista (`situacao`) | 200 | — |
+| GET | `/api/v1/caronas/{id}` | Detalhe da carona, **com links HATEOAS** | 200 | 404 |
+| PATCH | `/api/v1/caronas/{id}` | Altera horário, vagas ou ponto de saída, com `If-Match` | 200 | 403, 404, 409, 412, 422 |
+| POST | `/api/v1/caronas/{id}/cancelamento` | Cancela a carona (as solicitações abertas são canceladas por evento) | 202 | 403, 404, 409 |
+
+Comandos assíncronos da SAGA, fora do REST: `ReservarVaga`, `ConfirmarVaga`, `LiberarVaga` (tópico `caronas.comandos`).
+
+#### solicitacoes-service
+
+Arquivo: `openapi/solicitacoes-service.yaml`
+
+| Lado | Método | Caminho | Descrição | Sucesso | Erros |
+| --- | --- | --- | --- | --- | --- |
+| Escrita | POST | `/api/v1/solicitacoes` | Solicita vaga e inicia a SAGA (`Idempotency-Key`) | 202 | 403, 409, 422, 429 |
+| Escrita | POST | `/api/v1/solicitacoes/{id}/cancelamento` | Cancela a solicitação | 202 | 404, 409 |
+| Escrita (leitura direta) | GET | `/api/v1/solicitacoes/{id}` | Solicitação | 200 | 403, 404 |
+| Escrita (leitura direta) | GET | `/api/v1/solicitacoes` | Minhas solicitações (`situacao`) ou, para o motorista, `?caronaId=` | 200 | 403 |
+| Escrita (leitura direta) | GET | `/api/v1/solicitacoes/{id}/saga` | Estado e histórico da SAGA (diagnóstico) | 200 | 403, 404 |
+| Leitura (CQRS) | GET | `/api/v1/caronas-compativeis` | Busca por origem, destino, `chegarAte`, `raioMetros`, `publico` | 200 | 422 |
+| Leitura (CQRS) | GET | `/api/v1/caronas-compativeis/{caronaId}` | Uma carona no formato do modelo de leitura | 200 | 404 |
+| — | GET | `/api/v1/indicadores/efetividade-match` | Solicitações que viram viagem concluída (indicador 5) | 200 | 403, 422 |
+| — | GET | `/api/v1/indicadores/retencao` | Nova viagem em até 30 dias (indicador 3) | 200 | 403, 422 |
+
+Comandos assíncronos enviados por este serviço (orquestrador), fora do REST: `ReservarVaga`, `ConfirmarVaga`, `LiberarVaga`, `RegistrarContribuicaoEstimada`, `CancelarContribuicao`.
+
+#### viagens-service
+
+Arquivo: `openapi/viagens-service.yaml`
+
+| Método | Caminho | Descrição | Sucesso | Erros |
+| --- | --- | --- | --- | --- |
+| GET | `/api/v1/viagens/{caronaId}` | Situação da viagem e dos passageiros | 200 | 403, 404 |
+| POST | `/api/v1/viagens/{caronaId}/partida` | Inicia a viagem (motorista) | 201 | 403, 409 |
+| POST | `/api/v1/viagens/{caronaId}/chegada` | Conclui a viagem (motorista) | 201 | 403, 409 |
+| POST | `/api/v1/viagens/{caronaId}/checkins-embarque` | Checagem de embarque por código | 201 | 403, 409, 422 |
+| POST | `/api/v1/viagens/{caronaId}/posicoes` | Envia a posição durante a viagem | 204 | 403, 409 |
+| POST | `/api/v1/viagens/{caronaId}/compartilhamentos` | Cria o link de acompanhamento para um contato | 201 | 403, 409 |
+| GET | `/api/v1/viagens-compartilhadas/{token}` | Acompanha a viagem (público, somente leitura) | 200 | 404, 410 |
+| POST | `/api/v1/viagens/{caronaId}/alertas-emergencia` | Aciona o botão de emergência | 201 | 403, 404 |
+| GET | `/api/v1/alertas-emergencia/{id}` | Consulta o alerta | 200 | 403, 404 |
+| PATCH | `/api/v1/alertas-emergencia/{id}` | Atualiza ou encerra (segurança institucional) | 200 | 403, 409 |
+| GET | `/api/v1/indicadores/viagens-concluidas` | Caronas concluídas (indicador 6) | 200 | 403, 422 |
+
+#### avaliacoes-rateio-service
+
+Arquivo: `openapi/avaliacoes-rateio-service.yaml`
+
+| Método | Caminho | Descrição | Sucesso | Erros |
+| --- | --- | --- | --- | --- |
+| GET | `/api/v1/estimativas-contribuicao?caronaId=` | Estimativa por passageiro, com a conta aberta | 200 | 404, 422 |
+| GET | `/api/v1/contribuicoes` | Contribuições do usuário (`solicitacaoId`, `situacao`) | 200 | — |
+| GET | `/api/v1/contribuicoes/{id}` | Detalhe (distância, custo, divisão) | 200 | 403, 404 |
+| POST | `/api/v1/contribuicoes/{id}/acerto` | Motorista registra que o acerto foi feito (só registro) | 201 | 403, 404, 409 |
+| GET | `/api/v1/economia?periodo=` | Economia gerada pelo usuário no período | 200 | 422 |
+| POST | `/api/v1/avaliacoes` | Avalia o outro participante (nota geral e de segurança) | 201 | 403, 409, 422 |
+| GET | `/api/v1/avaliacoes/pendentes` | Avaliações obrigatórias pendentes | 200 | — |
+| GET | `/api/v1/reputacoes/{usuarioId}` | Nota agregada e total de viagens avaliadas | 200 | 404 |
+| GET | `/api/v1/reputacoes/{usuarioId}/avaliacoes` | Avaliações recebidas (paginado) | 200 | 404 |
+| GET | `/api/v1/indicadores/economia-media` | Economia média por estudante (indicador 1) | 200 | 403, 422 |
+| GET | `/api/v1/indicadores/seguranca-percebida` | Média das notas de segurança (indicador 2) | 200 | 403, 422 |
+
+Comandos assíncronos: `RegistrarContribuicaoEstimada`, `CancelarContribuicao` (tópico `avaliacoes-rateio.comandos`).
+
+### HATEOAS no recurso Carona
+
+O recurso com HATEOAS é a **carona**: `GET /api/v1/caronas/42`. O que cada pessoa pode fazer depende do estado da carona e de quem consulta. O servidor devolve em `_links` apenas as ações válidas naquele momento, e o cliente segue os links em vez de montar URLs ou replicar regras. Formato: HAL (`application/hal+json`); a propriedade `method` é uma extensão nossa, já que HAL não define o verbo.
+
+Um passageiro verificado, com a carona aberta e vagas livres:
+
+```json
+{
+  "id": "42",
+  "motoristaId": "91",
+  "origem":  { "descricao": "Praça Central", "lat": -21.20, "lng": -45.00 },
+  "destino": { "descricao": "Campus, Portaria 2", "lat": -21.15, "lng": -45.05 },
+  "saidaEm": "2026-10-23T06:40:00-03:00",
+  "vagasTotais": 3,
+  "vagasLivres": 2,
+  "publico": "SOMENTE_MULHERES",
+  "situacao": "ABERTA",
+  "_links": {
+    "self":                    { "href": "/api/v1/caronas/42" },
+    "motorista":               { "href": "/api/v1/usuarios/91" },
+    "reputacao-motorista":     { "href": "/api/v1/reputacoes/91" },
+    "estimativa-contribuicao": { "href": "/api/v1/estimativas-contribuicao?caronaId=42" },
+    "solicitar-vaga":          { "href": "/api/v1/solicitacoes", "method": "POST" }
+  }
+}
+```
+
+A mesma carona vista pelo motorista (sem `solicitar-vaga`; com as ações de dono):
+
+```json
+{
+  "id": "42",
+  "vagasLivres": 2,
+  "situacao": "ABERTA",
+  "_links": {
+    "self":           { "href": "/api/v1/caronas/42" },
+    "solicitacoes":   { "href": "/api/v1/solicitacoes?caronaId=42" },
+    "editar":         { "href": "/api/v1/caronas/42", "method": "PATCH" },
+    "cancelar":       { "href": "/api/v1/caronas/42/cancelamento", "method": "POST" },
+    "iniciar-viagem": { "href": "/api/v1/viagens/42/partida", "method": "POST" }
+  }
+}
+```
+
+| Situação e quem consulta | Links devolvidos além de `self` |
+| --- | --- |
+| `ABERTA`, passageiro verificado e elegível | `motorista`, `reputacao-motorista`, `estimativa-contribuicao`, `solicitar-vaga` |
+| `ABERTA`, motorista | `solicitacoes`, `editar`, `cancelar`, `iniciar-viagem` (perto do horário) |
+| `LOTADA` | `motorista`, `buscar-outras` (modelo de URL, `templated: true`) |
+| `EM_VIAGEM` | `motorista`; para o motorista, também `chegada` |
+| `CONCLUIDA` ou `CANCELADA` | `buscar-outras` |
+
+Se o usuário não for elegível ao público da carona (por exemplo, `SOMENTE_MULHERES`), o link `solicitar-vaga` não aparece, e a tentativa direta de `POST /api/v1/solicitacoes` devolve `403`.
+
+### Trecho do contrato OpenAPI
+
+O endpoint que inicia a SAGA, como está em `openapi/solicitacoes-service.yaml` (versão resumida):
+
+```yaml
+openapi: 3.0.3
+info: { title: UniRide solicitacoes-service, version: 1.0.0 }
+paths:
+  /api/v1/solicitacoes:
+    post:
+      summary: Solicita uma vaga em uma carona e inicia a SAGA
+      operationId: criarSolicitacao
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PedidoSolicitacao' }
+      responses:
+        '202':
+          description: Solicitação aceita em PENDENTE; a SAGA segue de forma assíncrona
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/hal+json:
+              schema: { $ref: '#/components/schemas/Solicitacao' }
+        '403': { $ref: '#/components/responses/Proibido' }
+        '409': { $ref: '#/components/responses/Conflito' }
+        '422': { $ref: '#/components/responses/NaoProcessavel' }
+        '429': { $ref: '#/components/responses/MuitasRequisicoes' }
+```
+
+---
