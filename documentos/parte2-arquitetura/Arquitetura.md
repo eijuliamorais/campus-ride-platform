@@ -629,8 +629,143 @@ sequenceDiagram
 ```
 
 ---
+## 4.6 SAGA orquestrada: solicitar uma carona
 
+A transação de negócio escolhida é **solicitar uma carona**: criar a solicitação, reservar a vaga e registrar a contribuição estimada. Ela atravessa **três serviços** (`solicitacoes`, `caronas` e `avaliacoes-rateio`) e é coordenada por um orquestrador que vive dentro do `solicitacoes-service`. Como cada serviço tem seu banco, não há transação ACID global: cada passo é uma transação local, e a falha de um passo desfaz os anteriores por **transações compensatórias**.
 
+### Orquestrada ou coreografada
+
+**Decisão: SAGA orquestrada.** O fluxo tem três participantes, a ordem importa, qualquer falha exige compensar os passos anteriores, e a vaga é um recurso disputado: precisamos de um ponto só que enxergue em que passo cada solicitação está.
+
+| Critério | Orquestrada (escolhida) | Coreografada (descartada) |
+| --- | --- | --- |
+| Visibilidade do fluxo | Um lugar só: estado em `saga_instance` e `GET /api/v1/solicitacoes/{id}/saga` | Espalhado nos *handlers* de três serviços; reconstruir a história exige correlacionar eventos |
+| Compensação | Ordem inversa decidida em um ponto, para falha em qualquer passo | Cada serviço precisa saber quem compensar e quando; risco de ciclos de eventos |
+| Acoplamento | Participantes só conhecem comando e resposta | Participantes conhecem eventos uns dos outros (rateio ouvindo `VagaRetida`, caronas ouvindo `ContribuicaoEstimadaRegistrada`) |
+| Mudar o fluxo (por exemplo, aprovação do motorista) | Altera o orquestrador | Altera vários serviços |
+| *Timeouts* e idempotência | Centralizados | Repetidos em cada serviço |
+
+O custo da orquestração é concentrar a coordenação em um componente. Mitigação: o orquestrador **só coordena** (nenhuma regra de domínio dos outros serviços), persiste o estado e os comandos na mesma transação (outbox) e pode ter várias instâncias, com exclusão por `sagaId`.
+
+### Modelagem da transação
+
+Ordem dos passos: primeiro o que **mais provavelmente falha e é mais barato de desfazer** (a vaga disputada), depois o cálculo da contribuição, e por fim o ponto sem volta.
+
+| Passo | Serviço | Comando | Sucesso | Falha | Compensação |
+| --- | --- | --- | --- | --- | --- |
+| T1 | `solicitacoes` | `CriarSolicitacao` (local) | Solicitação `PENDENTE`, SAGA `INICIADA` | — | C1 |
+| T2 | `caronas` | `ReservarVaga` | `VagaRetida` | `VagaRecusada` (`SEM_VAGAS`, `CARONA_INDISPONIVEL`, `PUBLICO_INCOMPATIVEL`) | C2 |
+| T3 | `avaliacoes-rateio` | `RegistrarContribuicaoEstimada` | `ContribuicaoEstimadaRegistrada` | `RegistroContribuicaoFalhou` (`ESTIMATIVA_INDISPONIVEL`) | C3 |
+| T4 (pivô) | `caronas` | `ConfirmarVaga` | `VagaConfirmada` | `ConfirmacaoVagaFalhou` (`RETENCAO_EXPIRADA`, `CARONA_INDISPONIVEL`) | — |
+| T5 | `solicitacoes` | `ConfirmarSolicitacao` (local) | Solicitação `CONFIRMADA`, SAGA `CONCLUIDA` | — (repetível) | — |
+
+- **T2 e T3 são compensáveis.** T4 é o **pivô**: depois de `VagaConfirmada` a SAGA só segue em frente. T5 é repetível até dar certo.
+- **"Registrar a contribuição estimada"** não move dinheiro. O `avaliacoes-rateio-service` calcula (distância × custo por km ÷ vagas ofertadas + 1) e grava a contribuição como `ESTIMADA`. O acerto entre as pessoas acontece fora do aplicativo, e o motorista só o registra depois (`POST /api/v1/contribuicoes/{id}/acerto`).
+- **Parâmetros iniciais de projeto, a calibrar:** *timeout* de 10 s por passo, com reenvio e *backoff* antes de declarar falha; retenção de vaga (`RETIDA`) expira em 120 s.
+
+### Transações compensatórias
+
+Cada compensação desfaz **uma alteração que realmente ocorreu**, e o serviço que a executa está indicado.
+
+| Compensação | Serviço que executa | Comando | O que desfaz | Idempotência e casos de borda |
+| --- | --- | --- | --- | --- |
+| C1 | `solicitacoes` | local | A solicitação criada em T1: vai para `RECUSADA` (falha antes da confirmação) ou `CANCELADA` (desistência), com o motivo; publica `SolicitacaoRecusada` ou `SolicitacaoCancelada` | Sem efeito se já estiver em estado final |
+| C2 | `caronas` | `LiberarVaga` | A vaga retida em T2: volta de `RETIDA` para livre; publica `VagaLiberada` | Sem efeito se não há retenção ou se ela expirou. Se chegar antes do `ReservarVaga` (mensagens fora de ordem), grava uma marca e o `ReservarVaga` posterior é rejeitado |
+| C3 | `avaliacoes-rateio` | `CancelarContribuicao` | O registro criado em T3: a contribuição vai para `CANCELADA` (o registro permanece, para auditoria); publica `ContribuicaoCancelada` | Sem efeito se não há contribuição para a solicitação |
+| — | T4, T5 | — | Sem compensação: depois do pivô não há volta | — |
+
+Todas as compensações são **idempotentes e seguras mesmo se o passo original nunca ocorreu**, porque, após um *timeout*, o orquestrador não sabe se o passo foi executado. Por isso o orquestrador compensa os passos já concluídos e também o passo em dúvida.
+
+| Falha em | Compensações, nesta ordem | Solicitação termina |
+| --- | --- | --- |
+| T2 | C1 | `RECUSADA` |
+| T3 | C2, C1 | `RECUSADA` |
+| T4 | C3, C2, C1 | `RECUSADA` |
+| *Timeout* em qualquer passo | Passo em dúvida e todos os anteriores, em ordem inversa | `RECUSADA` (motivo `TEMPO_ESGOTADO`) |
+| Passageiro desiste antes de `CONFIRMADA` | Mesma cadeia do passo em que estava | `CANCELADA` |
+
+O cancelamento depois de `CONFIRMADA` roda uma SAGA de cancelamento própria, que reutiliza C2 e C3. Como as duas são idempotentes, são reenviadas até confirmar.
+
+### Estados da SAGA
+
+```mermaid
+stateDiagram-v2
+  [*] --> INICIADA: CriarSolicitacao
+  INICIADA --> VAGA_RETIDA: VagaRetida
+  INICIADA --> COMPENSANDO: VagaRecusada ou timeout
+  VAGA_RETIDA --> CONTRIBUICAO_REGISTRADA: ContribuicaoEstimadaRegistrada
+  VAGA_RETIDA --> COMPENSANDO: RegistroContribuicaoFalhou ou timeout
+  CONTRIBUICAO_REGISTRADA --> CONCLUIDA: VagaConfirmada
+  CONTRIBUICAO_REGISTRADA --> COMPENSANDO: ConfirmacaoVagaFalhou ou timeout
+  COMPENSANDO --> COMPENSADA: compensações concluídas
+  CONCLUIDA --> [*]
+  COMPENSADA --> [*]
+```
+
+`CONCLUIDA` corresponde à solicitação `CONFIRMADA`; `COMPENSADA`, à solicitação `RECUSADA` ou `CANCELADA`. O orquestrador ignora respostas que não correspondem ao estado atual, o que torna respostas duplicadas ou atrasadas inofensivas.
+
+### Como a SAGA permanece correta
+
+- **Atomicidade do orquestrador:** cada transição grava o novo estado de `saga_instance` e o próximo comando em `outbox_event` na mesma transação (4.5).
+- **Idempotência dos participantes:** todo comando traz `sagaId` e `passo`; o par é a chave de deduplicação na `inbox_message`.
+- **Isolamento (*semantic lock*):** a vaga `RETIDA` já some da disponibilidade, então duas solicitações simultâneas não disputam a mesma vaga; a retenção expira sozinha se a SAGA morrer.
+- **Visibilidade para o usuário:** o `202` devolve a solicitação `PENDENTE`; o aplicativo acompanha por SSE ou por `GET /api/v1/solicitacoes/{id}` e recebe o desfecho.
+- **Depois da confirmação:** `SolicitacaoConfirmada` leva o `viagens-service` a inscrever o passageiro na viagem e gerar o código de embarque. Isso acontece fora da SAGA, porque pode ser feito depois sem desfazer nada.
+
+### Diagrama de sequência: caminho feliz
+
+As mensagens entre serviços trafegam pelo Kafka e são publicadas via outbox.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor P as Passageiro (aplicativo)
+  participant S as solicitacoes-service (orquestrador)
+  participant C as caronas-service
+  participant R as avaliacoes-rateio-service
+  P->>S: POST /api/v1/solicitacoes com Idempotency-Key
+  S->>S: T1 grava Solicitação PENDENTE, SAGA INICIADA e outbox na mesma transação
+  S-->>P: 202 Accepted (Location /api/v1/solicitacoes/7)
+  S->>C: ReservarVaga
+  C-->>S: VagaRetida (vaga retida por 120 s)
+  S->>R: RegistrarContribuicaoEstimada
+  R-->>S: ContribuicaoEstimadaRegistrada
+  S->>C: ConfirmarVaga
+  C-->>S: VagaConfirmada
+  S->>S: T5 Solicitação CONFIRMADA, SAGA CONCLUIDA
+  S-->>P: SSE: solicitação confirmada
+```
+
+### Diagrama de sequência: falha na confirmação, com compensações
+
+O passageiro demorou a ser processado e a retenção da vaga expirou. Quando o orquestrador envia `ConfirmarVaga`, o `caronas-service` recusa. A contribuição já registrada e a vaga precisam ser desfeitas, e a solicitação é recusada.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor P as Passageiro (aplicativo)
+  participant S as solicitacoes-service (orquestrador)
+  participant C as caronas-service
+  participant R as avaliacoes-rateio-service
+  P->>S: POST /api/v1/solicitacoes com Idempotency-Key
+  S-->>P: 202 Accepted (solicitação PENDENTE)
+  S->>C: ReservarVaga
+  C-->>S: VagaRetida
+  S->>R: RegistrarContribuicaoEstimada
+  R-->>S: ContribuicaoEstimadaRegistrada
+  S->>C: ConfirmarVaga
+  C-->>S: ConfirmacaoVagaFalhou (RETENCAO_EXPIRADA)
+  Note over S: SAGA vai para COMPENSANDO. Passos concluídos a desfazer: T3 e T2
+  S->>R: CancelarContribuicao (compensação C3)
+  R-->>S: ContribuicaoCancelada
+  S->>C: LiberarVaga (compensação C2)
+  C-->>S: VagaLiberada (sem efeito se a retenção já expirou)
+  Note over C: modelo de leitura volta a exibir a vaga
+  S->>S: C1 Solicitação RECUSADA (motivo RETENCAO_EXPIRADA), SAGA COMPENSADA
+  S-->>P: SSE: solicitação recusada
+  P->>S: GET /api/v1/solicitacoes/7
+  S-->>P: 200 situacao RECUSADA
+```
 ---
 
 ## 4.7 CQRS na busca de caronas compatíveis
