@@ -528,3 +528,219 @@ Resposta resumida (valores fictícios):
 
 ---
 
+
+---
+
+## 4.5 Database per service, consistência eventual e outbox
+
+Cada serviço é dono exclusivo do seu banco: nenhum outro serviço lê ou escreve nele. Os dados circulam por eventos, o que cria pontos de **consistência eventual** e o risco de **dual write** (gravar no banco e publicar no Kafka sem transação em comum). O padrão **outbox** elimina esse risco.
+
+### Um banco por serviço
+
+| Serviço | Banco | Dados | Por que essa tecnologia |
+| --- | --- | --- | --- |
+| `usuarios` | PostgreSQL | Usuários, vínculos, veículos, contatos | Dados relacionais, unicidade de matrícula e e-mail, transação ACID no cadastro e na verificação |
+| `caronas` | PostgreSQL + PostGIS | Caronas, vagas, rotas | A invariante "vagas confirmadas nunca excedem a capacidade" exige transação e controle otimista de versão; PostGIS calcula a distância da rota |
+| `solicitacoes` (escrita) | PostgreSQL | Solicitações, `saga_instance`, outbox e inbox | Estado da solicitação, da SAGA e do comando seguinte na mesma transação local |
+| `solicitacoes` (leitura) | MongoDB (índice `2dsphere`) | Coleção `carona_compativel` | Documento desnormalizado por carona, consulta geoespacial e por janela de horário sem *joins* (4.7). Pertence ao mesmo serviço |
+| `viagens` | MongoDB (replica set) | Viagens, check-ins, posições, alertas | Série de posições com índice TTL, que expira a localização após o prazo de retenção; escrita frequente; transações multidocumento permitem a outbox |
+| `avaliacoes-rateio` | PostgreSQL | Contribuições, avaliações, notas agregadas | Médias e contagens por agregação; `NUMERIC` para valores; unicidade "uma avaliação por participante por viagem" |
+
+Regras: nenhum *join* nem credencial entre bancos; cada serviço roda as próprias migrações; dado de outro serviço só existe como cópia local alimentada por evento. Redis (contadores do gateway e lista de revogação) e Kafka são infraestrutura, não bancos de serviço. Foram escolhidas poucas tecnologias, cada uma com um motivo concreto.
+
+### Pontos de consistência eventual
+
+| # | Ponto | Origem → destino | Defasagem aceitável | Tratamento |
+| --- | --- | --- | --- | --- |
+| 1 | Busca de caronas compatíveis | `caronas` → modelo de leitura em `solicitacoes` | até 5 s | A busca pode mostrar vaga já ocupada; o `ReservarVaga` da SAGA revalida e a solicitação termina `RECUSADA` com `SEM_VAGAS` |
+| 2 | Situação da solicitação | `solicitacoes`, `caronas`, `avaliacoes-rateio` | segundos; a retenção de vaga expira em 120 s | A solicitação fica `PENDENTE` e visível por `GET /api/v1/solicitacoes/{id}` e SSE; falha dispara compensação (4.6) |
+| 3 | Nome, foto e veículo do motorista na busca | `usuarios` → leitura em `solicitacoes` | até 1 min | Dado de apresentação; sem risco |
+| 4 | Nota do motorista na busca | `avaliacoes-rateio` → leitura em `solicitacoes` | até 5 min | A nota pode estar uma avaliação atrás |
+| 5 | Contatos de emergência | `usuarios` → `viagens` | até 1 min | Cadastrados antes do dia da viagem; a defasagem não afeta o uso real |
+| 6 | Suspensão de usuário | `usuarios` → `caronas`, `solicitacoes`, `viagens` | até 1 min nos serviços; JWT vale até 15 min | A lista de revogação em Redis, consultada pelo gateway, fecha a janela do token |
+| 7 | Indicadores do painel | serviços → `bff-painel` | até 5 min (*cache* do BFF) | O painel mostra o estado de alguns minutos atrás |
+
+### Risco de dual write
+
+Quando uma operação grava no banco **e** publica no Kafka, há duas falhas possíveis: o processo cai depois do *commit* e antes da publicação (**evento perdido**), ou publica e o *commit* falha (**evento fantasma**).
+
+| Onde | Escrita dupla | Consequência sem proteção | Tratamento |
+| --- | --- | --- | --- |
+| `caronas-service` | Grava a carona e publica `CaronaOfertada`, `VagaRetida`... | A carona nunca aparece na busca, ou aparece sem existir | Outbox |
+| `solicitacoes-service` (orquestrador) | Atualiza o estado da SAGA e envia o comando ao próximo participante | A SAGA trava no meio, ou o comando sai sem o estado ter sido salvo | Outbox: estado e comando na mesma transação |
+| `avaliacoes-rateio-service` | Grava a contribuição e publica `ContribuicaoEstimadaRegistrada` | O orquestrador espera até o *timeout* e compensa sem necessidade | Outbox |
+| `viagens-service` | Grava o alerta de emergência e publica `AlertaEmergenciaAcionado` | Alerta gravado e ninguém avisado: o pior caso do sistema | Outbox na transação multidocumento do MongoDB |
+| Projetor do modelo de leitura | Atualiza o MongoDB e confirma o *offset* no Kafka | Evento reprocessado após queda (entrega *at-least-once*) | *Upsert* idempotente com a versão do agregado; *offset* confirmado só depois de gravar |
+
+### Projeto do padrão outbox
+
+O serviço grava a alteração e o evento **na mesma transação local**; um publicador envia o evento depois, e quem consome desduplica. O evento é gravado em uma tabela `outbox_event`.
+
+```sql
+CREATE TABLE outbox_event (
+  id            UUID PRIMARY KEY,
+  aggregate     VARCHAR(60) NOT NULL,
+  aggregate_id  VARCHAR(60) NOT NULL,
+  event_type    VARCHAR(80) NOT NULL,
+  topic         VARCHAR(80) NOT NULL,
+  payload       JSONB       NOT NULL,
+  occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  published_at  TIMESTAMPTZ
+);
+CREATE INDEX idx_outbox_pending ON outbox_event (occurred_at) WHERE published_at IS NULL;
+
+CREATE TABLE inbox_message (
+  message_id    UUID        NOT NULL,
+  consumer      VARCHAR(60) NOT NULL,
+  processed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (message_id, consumer)
+);
+```
+
+- **Publicador (*relay*):** processo do próprio serviço que, em intervalo curto, lê os eventos com `published_at` nulo em ordem de `occurred_at`, publica no Kafka com chave igual a `aggregate_id` (ordem garantida por agregado, não global) e marca `published_at`. Uma instância ativa por serviço, garantida por *advisory lock*. Se cair entre publicar e marcar, republica: a entrega é *at-least-once*.
+- **Consumidor idempotente:** na transação local, insere `(message_id, consumer)` em `inbox_message`; se a chave já existe, descarta a mensagem.
+- **Envelope do evento:** `eventId`, `eventType`, `schemaVersion`, `aggregateId`, `aggregateVersion`, `occurredAt`, `correlationId`, `data`.
+- **Limpeza:** job remove eventos publicados há mais de 7 dias.
+- **Evolução possível:** trocar o *polling* por CDC (Debezium lendo o *log* do PostgreSQL), sem mudar o contrato dos eventos.
+
+Fluxo concreto: o motorista oferece uma carona e o modelo de leitura da busca é atualizado. O mesmo mecanismo publica os comandos da SAGA no `solicitacoes-service`.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Aplicativo (via gateway)
+  participant C as caronas-service
+  participant PG as PostgreSQL (caronas)
+  participant X as Publicador da outbox
+  participant K as Kafka (caronas.eventos)
+  participant P as Projetor (solicitacoes-service)
+  participant MG as MongoDB (carona_compativel)
+  A->>C: POST /api/v1/caronas
+  C->>PG: INSERT carona + INSERT outbox_event (CaronaOfertada), COMMIT
+  C-->>A: 201 Created
+  loop a cada ciclo do publicador
+    X->>PG: lê eventos com published_at nulo
+    X->>K: publica CaronaOfertada (chave = caronaId)
+    X->>PG: marca published_at
+  end
+  K->>P: CaronaOfertada
+  P->>MG: upsert em carona_compativel se a versão for maior
+  P->>K: confirma o offset
+```
+
+---
+
+
+---
+
+## 4.7 CQRS na busca de caronas compatíveis
+
+O CQRS é aplicado em um ponto só: a **busca de caronas compatíveis**, no `solicitacoes-service`. O serviço separa o **modelo de escrita** (PostgreSQL, onde vivem as solicitações, o estado das SAGAs e as regras) do **modelo de leitura** (MongoDB, um documento desnormalizado por carona, pronto para a busca). É CQRS **sem Event Sourcing**: o lado de escrita guarda o estado atual, e os eventos publicados pelas outras fontes (4.5) mantêm o lado de leitura atualizado. Os dois bancos pertencem ao mesmo serviço, então a regra de um banco por serviço continua valendo. Os demais serviços não têm modelo de leitura separado, porque não há necessidade.
+
+### Por que a busca se beneficia da separação
+
+- **Carga assimétrica:** as buscas se concentram nos horários de aula, e cada estudante busca várias vezes antes de solicitar uma vez. Separar permite escalar só a leitura.
+- **Formas de dado diferentes:** a escrita precisa de um agregado normalizado (solicitação, estado da SAGA); a busca precisa de um documento com rota, vagas livres, nome, foto e nota do motorista e veículo, dados que vêm de três serviços. A cópia local por evento evita *joins* síncronos entre serviços.
+- **Consulta geoespacial cara:** busca por origem, destino e janela de horário não deve competir, no mesmo banco, com as transações da SAGA.
+- **Disponibilidade da busca:** a busca continua respondendo, com dados de poucos segundos atrás, mesmo se o banco de escrita estiver sob carga.
+
+### O que é "compatível"
+
+Uma carona é compatível com a necessidade do estudante quando: a origem e o destino estão dentro do raio informado (padrão de 1.500 m); a saída mais a duração estimada chega antes do horário-limite de chegada (`chegarAte`, o início da aula); há vaga livre; e o público da carona admite o usuário. O resultado vem ordenado pela folga de horário e pela distância até a origem. Quem aplica essa regra é o `solicitacoes-service`, nunca o gateway.
+
+### Os dois modelos
+
+| | Lado de escrita (comandos) | Lado de leitura (consultas) |
+| --- | --- | --- |
+| Banco | PostgreSQL | MongoDB |
+| Modelo | Agregado `Solicitacao` (`passageiroId`, `caronaId`, `pontoEmbarque`, `situacao`, `motivoRecusa`, `versao`) e `saga_instance` | Documento `carona_compativel`, desnormalizado |
+| Operações | `CriarSolicitacao`, `CancelarSolicitacao`, comandos e respostas da SAGA | `BuscarCaronasCompativeis`, `ObterCaronaCompativel` |
+| Endpoints | `POST /api/v1/solicitacoes`, `/cancelamento`; leitura direta das solicitações | `GET /api/v1/caronas-compativeis`, `GET /api/v1/caronas-compativeis/{caronaId}` |
+| Consistência | Forte: transação local com outbox | Eventual: até 5 s |
+| Escala | Poucas instâncias | Réplicas conforme a demanda de busca |
+
+O documento de leitura (formato da API; o armazenamento guarda também os pontos em GeoJSON e a versão):
+
+```json
+{
+  "caronaId": "42",
+  "saidaEm": "2026-10-23T06:40:00-03:00",
+  "origem":  { "descricao": "Praça Central", "lat": -21.20, "lng": -45.00 },
+  "destino": { "descricao": "Campus, Portaria 2", "lat": -21.15, "lng": -45.05 },
+  "vagasLivres": 2,
+  "publico": "SOMENTE_MULHERES",
+  "motorista": { "id": "91", "nome": "Marina S.", "fotoUrl": "https://cdn.uniride/u-91_96.jpg", "nota": 4.9, "viagensConcluidas": 37 },
+  "veiculo": { "modelo": "Onix", "cor": "prata", "placa": "QWE-4A21" },
+  "distanciaOrigemMetros": 420,
+  "folgaMinutos": 35,
+  "atualizadoEm": "2026-10-22T19:03:11-03:00"
+}
+```
+
+Índices: `2dsphere` em origem e destino; composto em `situacao` e `saidaEm`; simples em `publico`.
+
+`GET /api/v1/solicitacoes` é a exceção: lê do **modelo de escrita**, para que o passageiro veja imediatamente a solicitação que acabou de criar (leitura do que se escreveu).
+
+```mermaid
+flowchart LR
+  APP["bff-app / gateway"] -->|"comandos"| C
+  APP -->|"consultas"| Q
+  subgraph CMD["Lado de escrita"]
+    C["API de comandos"]
+    W[("PostgreSQL<br/>Solicitacao, saga_instance, outbox")]
+    C --> W
+  end
+  W -->|"publicador da outbox"| KS[("Kafka<br/>solicitacoes.eventos<br/>comandos da SAGA")]
+  KC[("caronas.eventos<br/>CaronaOfertada, VagaRetida...")] --> PRJ
+  KU[("usuarios.eventos<br/>PerfilAtualizado")] --> PRJ
+  KA[("avaliacoes-rateio.eventos<br/>ReputacaoAtualizada")] --> PRJ
+  subgraph QRY["Lado de leitura"]
+    PRJ["Projetor"]
+    R[("MongoDB<br/>carona_compativel")]
+    Q["API de consultas"]
+    PRJ --> R
+    R --> Q
+  end
+```
+
+### Como o modelo de leitura é atualizado
+
+Um projetor, módulo do próprio `solicitacoes-service`, consome eventos e faz *upsert* no MongoDB.
+
+| Evento | Origem | Efeito no documento |
+| --- | --- | --- |
+| `CaronaOfertada`, `CaronaAtualizada` | caronas | Cria ou atualiza rota, horário, vagas e público |
+| `VagaRetida`, `VagaLiberada`, `VagaConfirmada` | caronas | Recalcula `vagasLivres` |
+| `CaronaCancelada`, `ViagemIniciada`, `ViagemConcluida` | caronas, viagens | Atualiza a situação; carona que não está aberta sai da busca |
+| `PerfilAtualizado` | usuarios | Atualiza `motorista` (nome, foto) e `veiculo` |
+| `ReputacaoAtualizada` | avaliacoes-rateio | Atualiza `motorista.nota` |
+
+- **Idempotência e ordem:** eventos da carona chegam em ordem por `caronaId` (chave de partição); o projetor só aplica o evento se `aggregateVersion` for maior que a `versao` do documento. Reprocessar não causa dano.
+- **Reconstrução:** o modelo de leitura é descartável. Para refazê-lo (mudança de esquema, falha grave), reprocessa-se `caronas.eventos` desde o início (tópico de retenção longa ou compactado), mais um instantâneo dos perfis e notas.
+
+### Defasagem aceitável
+
+| Dado | Defasagem aceitável (p95) | Como é medida |
+| --- | --- | --- |
+| Criação, alteração e cancelamento de carona; vagas | 5 s | Métrica de *projection lag*: agora menos `occurredAt` do último evento aplicado; alerta se passar do limite |
+| Perfil e veículo do motorista | 1 min | Mesma métrica, por tópico |
+| Nota do motorista | 5 min | Mesma métrica, por tópico |
+
+O que acontece quando a leitura está defasada: o **`caronas-service` é a fonte da verdade**.
+
+- Vaga que a busca ainda mostra, mas já foi ocupada: o `ReservarVaga` da SAGA rejeita, a solicitação termina `RECUSADA` com `SEM_VAGAS` e o aplicativo sugere a próxima carona.
+- Carona cancelada que aparece por alguns segundos: o `ReservarVaga` rejeita com `CARONA_INDISPONIVEL`.
+- Nenhuma decisão de negócio é tomada com base no modelo de leitura; ele só orienta a escolha.
+
+---
+
+## Referências
+
+- [*RICHARDSON, Chris.* Microservices Patterns. Manning, 2018. Padrões: Database per service, Saga, Transactional outbox, CQRS e API Gateway.](https://microservices.io/patterns/index.html)
+- [*GARCIA-MOLINA, Hector; SALEM, Kenneth.* Sagas. ACM SIGMOD Record, v. 16, n. 3, 1987.](https://dblp.l3s.de/d2r/resource/publications/conf/sigmod/Garcia-MolinaS87)
+- [*NEWMAN, Sam.* Pattern: Backends For Frontends.](https://samnewman.io/patterns/architectural/bff/)
+- [*FOWLER, Martin.* CQRS.](https://martinfowler.com/bliki/CQRS.html)
+- [*IETF.* RFC 9457: Problem Details for HTTP APIs, 2023.](https://www.rfc-editor.org/rfc/rfc9457.html)
+- [*IETF.* RFC 8594: The Sunset HTTP Header Field, 2019.](https://www.rfc-editor.org/rfc/rfc8594.html)
+- [*KELLY, Mike.* JSON Hypertext Application Language (HAL).](https://datatracker.ietf.org/doc/draft-kelly-json-hal/)
+- [*BRASIL.* Lei nº 13.709, de 14 de agosto de 2018 (Lei Geral de Proteção de Dados Pessoais).](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm)
