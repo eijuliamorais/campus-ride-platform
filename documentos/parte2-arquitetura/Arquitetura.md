@@ -375,3 +375,156 @@ paths:
 ```
 
 ---
+
+## 4.3 API Gateway e gateway routing
+
+Um único ponto de entrada (Spring Cloud Gateway ou Kong) autentica, protege e roteia, mas não carrega regra de negócio nem agrega respostas: **agregação é papel do BFF**. Os serviços de domínio ficam em rede interna e só são alcançáveis pelo gateway e pelos BFFs.
+
+### Responsabilidades do gateway
+
+| Responsabilidade | Como funciona |
+| --- | --- |
+| Terminação TLS | HTTPS na borda; tráfego interno em rede privada |
+| Autenticação | Valida assinatura, expiração e `aud` do JWT com as chaves do `usuarios-service` (JWKS em cache). Token inválido recebe `401` sem chegar aos serviços. Rotas públicas são listadas explicitamente |
+| Autorização grossa | Papel por prefixo (`/painel/**` exige `ADMIN_INSTITUCIONAL`) e claim `verificado=true` nas rotas de carona, solicitação e viagem (`403` caso contrário). Regras finas, como "só o dono da carona", ficam no serviço |
+| Limite de uso | *Token bucket* por usuário (por IP nas rotas públicas), contadores em Redis. O login é a rota mais restrita (anti força bruta); o alerta de emergência é isento |
+| Roteamento | Por prefixo de recurso, sem alterar o caminho da API (tabela abaixo) |
+| Resiliência | *Timeout* por rota, *retry* só em `GET`, *circuit breaker* por destino |
+| Rastreabilidade | Gera e propaga `X-Correlation-Id` e `traceparent`; *log* de acesso e métricas por rota |
+| Cabeçalhos de identidade | Descarta `X-User-*` vindos de fora e injeta `X-User-Id` e `X-User-Roles` após validar o token. Os serviços revalidam o JWT (defesa em profundidade) |
+| CORS e cabeçalhos de segurança | Origem do painel liberada; HSTS |
+
+**Fica fora do gateway:** agregar respostas, transformar *payloads* e aplicar regra de negócio. Ele não decide, por exemplo, se uma carona é compatível com a rota de um passageiro: isso é do `solicitacoes-service`. Um gateway com lógica vira gargalo e ponto único de mudança.
+
+### Regras de roteamento
+
+Avaliadas por ordem; a primeira que casa vence. Os caminhos externos são os mesmos das APIs dos serviços (`/api/v1/...`), e os BFFs têm prefixos próprios.
+
+| # | Caminho externo | Destino | Autenticação | Limite de uso inicial |
+| --- | --- | --- | --- | --- |
+| 1 | `POST /api/v1/viagens/*/alertas-emergencia` | `viagens-service` | JWT | Isento (idempotente no serviço) |
+| 2 | `POST /api/v1/viagens/*/posicoes` | `viagens-service` | JWT, `verificado` | 120 req/min por usuário |
+| 3 | `GET /api/v1/viagens-compartilhadas/*` | `viagens-service` | Pública (token do link) | 30 req/min por IP |
+| 4 | `/api/v1/usuarios/**`, `/verificacoes/**`, `/sessoes/**`, `/chaves-publicas` | `usuarios-service` | Pública em cadastro, login e chaves; JWT nas demais | Login: 5 req/min por IP; demais: 20 req/min |
+| 5 | `/api/v1/caronas-compativeis/**` | `solicitacoes-service` (leitura) | JWT, `verificado` | 60 req/min por usuário |
+| 6 | `/api/v1/caronas/**` | `caronas-service` | JWT, `verificado` | 60 req/min por usuário |
+| 7 | `/api/v1/solicitacoes/**` | `solicitacoes-service` | JWT, `verificado` | 60 req/min por usuário |
+| 8 | `/api/v1/viagens/**`, `/api/v1/alertas-emergencia/**` | `viagens-service` | JWT, `verificado` | 60 req/min por usuário |
+| 9 | `/api/v1/avaliacoes/**`, `/reputacoes/**`, `/contribuicoes/**`, `/estimativas-contribuicao`, `/economia` | `avaliacoes-rateio-service` | JWT, `verificado` | 60 req/min por usuário |
+| 10 | `/app/v1/**` | `bff-app` | JWT, `verificado` | 60 req/min por usuário |
+| 11 | `/painel/v1/**` | `bff-painel` | JWT, papel `ADMIN_INSTITUCIONAL` | 30 req/min por usuário |
+| 12 | `/api/v1/indicadores/**` | — (bloqueado) | — | `404`: só o `bff-painel` chama, pela rede interna |
+| 13 | Qualquer outro caminho | — | — | `404` |
+
+Por que as regras 1 e 2 vêm primeiro e são tratadas à parte: o alerta de emergência e as posições não precisam de composição, e é ali que a latência e a disponibilidade mais importam. Os limites são valores iniciais de projeto, a calibrar com medição.
+
+---
+
+## 4.4 Backend for Frontend
+
+São dois BFFs, um por tipo de cliente: **`bff-app`**, para o aplicativo do estudante (passageiro ou motorista), e **`bff-painel`**, para o painel administrativo da universidade (coordenação estudantil e segurança do campus). Os BFFs **não são serviços de domínio**: são camadas de backend *stateless*, sem banco próprio e sem regra de negócio, que compõem chamadas aos serviços no formato que cada cliente precisa e respeitam as permissões de cada perfil.
+
+### Por que as necessidades diferem
+
+Uma API única obrigaria o aplicativo a baixar dados de painel e exporia dados pessoais ao painel. A Parte 1 já separa os dois públicos: o estudante decide e age; a instituição acompanha o impacto e a segurança.
+
+| Aspecto | `bff-app` | `bff-painel` |
+| --- | --- | --- |
+| Quem usa | Estudante verificado, no celular | Coordenação estudantil e equipe de segurança, no navegador |
+| Objetivo da tela | Agir rápido: achar carona, solicitar vaga, embarcar, pedir ajuda | Acompanhar impacto, verificação e segurança, comparar períodos |
+| Dados | Um registro por vez, com o que o usuário precisa ver (nome, nota, placa) | Agregados e anonimizados, com referências opacas no lugar de identificadores (LGPD). Identificação só no atendimento a um alerta de emergência, por necessidade e finalidade |
+| Formato da resposta | Compacto, só os campos da tela, links HATEOAS de ação | Tabelas largas, séries por período, totais, indicadores operacionais |
+| Rede e latência | Rede móvel instável: uma chamada por tela, *cache* curto | Banda estável: aceita consultas de alguns segundos, *cache* de minutos |
+| Tempo real | SSE para o estado da solicitação e da viagem | *Polling* de 60 s; alertas de emergência por SSE |
+| Papel exigido | `ESTUDANTE` com `verificado=true` | `ADMIN_INSTITUCIONAL` |
+| Ritmo de mudança | Versões antigas do aplicativo ficam em campo; contrato muda pouco | Atualizado junto com o painel |
+
+### Diferença explícita nas respostas
+
+A mesma carona (`42`), vista pelos dois clientes. Valores fictícios.
+
+**`GET /app/v1/caronas/42`** — o passageiro decide se solicita a vaga. O BFF chama em paralelo o `caronas-service` (carona), o `avaliacoes-rateio-service` (reputação do motorista e estimativa da contribuição) e o `solicitacoes-service` (o pedido do próprio usuário, se existir):
+
+```json
+{
+  "id": "42",
+  "motorista": { "nome": "Marina S.", "fotoUrl": "https://cdn.uniride/u-91_96.jpg", "nota": 4.9, "viagensConcluidas": 37, "verificado": true },
+  "veiculo": "Onix prata · QWE-4A21",
+  "saida": { "em": "2026-10-23T06:40:00-03:00", "local": "Praça Central" },
+  "destino": "Campus · Portaria 2",
+  "vagasLivres": 2,
+  "publico": "SOMENTE_MULHERES",
+  "suaContribuicao": { "valor": 6.50, "moeda": "BRL" },
+  "seuPedido": null,
+  "_links": {
+    "solicitar-vaga": { "href": "/app/v1/solicitacoes", "method": "POST" },
+    "perfil-motorista": { "href": "/app/v1/usuarios/91" }
+  }
+}
+```
+
+**`GET /painel/v1/caronas/42`** — a coordenação acompanha verificação, moderação e operação da mesma carona. O BFF consulta `caronas`, `solicitacoes`, `usuarios`, `viagens` e `avaliacoes-rateio` e devolve só agregados:
+
+```json
+{
+  "caronaRef": "rd_3b9f1c",
+  "data": "2026-10-23",
+  "faixaHorario": "06:00-07:00",
+  "zonaOrigem": "Centro",
+  "zonaDestino": "Campus",
+  "publico": "SOMENTE_MULHERES",
+  "situacao": "CONCLUIDA",
+  "verificacao": { "motorista": "VERIFICADO", "vinculoValidoAte": "2027-02-28", "passageirosVerificados": 2 },
+  "vagas": { "ofertadas": 3, "confirmadas": 2 },
+  "funilSolicitacoes": { "criadas": 4, "confirmadas": 2, "recusadas": 1, "canceladas": 1 },
+  "contribuicaoTotal": { "valor": 13.00, "moeda": "BRL" },
+  "moderacao": { "notaSegurancaMedia": 5.0, "alertasEmergencia": 0, "checkinsEmbarque": "2/2" }
+}
+```
+
+O aplicativo recebe nome, foto, placa e o valor que **o próprio estudante** contribuiria; o painel recebe faixa de horário, zonas, status de verificação, dados de moderação e indicadores operacionais, sem nenhum dado que identifique motorista ou passageiros.
+
+### Operações compostas por BFF
+
+| BFF | Operação | Serviços chamados |
+| --- | --- | --- |
+| app | `GET /app/v1/inicio` (próxima solicitação, avaliações pendentes) | solicitacoes, avaliacoes-rateio |
+| app | `GET /app/v1/caronas` (busca) | solicitacoes (modelo de leitura) |
+| app | `GET /app/v1/caronas/{id}` | caronas, avaliacoes-rateio, solicitacoes |
+| app | `POST /app/v1/solicitacoes` | solicitacoes |
+| app | `GET /app/v1/solicitacoes/{id}/eventos` (SSE) | solicitacoes.eventos |
+| painel | `GET /painel/v1/indicadores` (visão geral) | usuarios, solicitacoes, viagens, avaliacoes-rateio |
+| painel | `GET /painel/v1/caronas/{id}` (anonimizado) | caronas, solicitacoes, usuarios, viagens, avaliacoes-rateio |
+| painel | `GET /painel/v1/alertas` e SSE | viagens, usuarios (identificação, só no atendimento) |
+
+Resiliência: cada chamada composta tem *timeout* curto. Se um serviço não essencial falha (por exemplo, a estimativa da contribuição), o BFF responde a tela com `suaContribuicao: null` e um aviso, em vez de falhar a tela inteira.
+
+### Os seis indicadores da Parte 1 no painel
+
+`GET /painel/v1/indicadores?de=2026-09-01&ate=2026-09-30` chama os endpoints de indicadores de quatro serviços (rede interna) e monta uma resposta única:
+
+| Indicador da Parte 1 | Endpoint de origem | Base do cálculo |
+| --- | --- | --- |
+| Economia gerada por estudante | `avaliacoes-rateio` `/api/v1/indicadores/economia-media` | Contribuições acertadas, por usuário e período |
+| Sensação de segurança percebida | `avaliacoes-rateio` `/api/v1/indicadores/seguranca-percebida` | Média das notas de segurança das avaliações pós-viagem |
+| Retenção de uso | `solicitacoes` `/api/v1/indicadores/retencao` | Usuários com nova viagem em até 30 dias da primeira |
+| Adesão de mulheres | `usuarios` `/api/v1/indicadores/adesao-feminina` | Mulheres cadastradas com ao menos 1 viagem concluída (o `usuarios-service` consome `ViagemConcluida` para manter esse contador) |
+| Efetividade do match | `solicitacoes` `/api/v1/indicadores/efetividade-match` | Solicitações que terminam em viagem concluída |
+| Volume de caronas concluídas | `viagens` `/api/v1/indicadores/viagens-concluidas` | Viagens `CONCLUIDA` com avaliação preenchida |
+
+Resposta resumida (valores fictícios):
+
+```json
+{
+  "periodo": { "de": "2026-09-01", "ate": "2026-09-30" },
+  "economiaPorEstudante": { "media": 41.20, "moeda": "BRL" },
+  "segurancaPercebida": { "media": 4.7, "viagensAvaliadas": 312 },
+  "retencao30d": 0.58,
+  "adesaoFeminina": 0.46,
+  "efetividadeMatch": 0.71,
+  "caronasConcluidas": 312
+}
+```
+
+---
+
