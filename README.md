@@ -8,7 +8,6 @@
 
 - [Clarisse Lacerda Pimentel](https://github.com/Clarisse-Pimentel) 
 - [Júlia Aparecida de Faria Morais](https://github.com/eijuliamorais)
-- [Lucas Torquato de Melo](https://github.com/TorquatoLucas)
 - [Luiz Francisco Sousa de Jesus](https://github.com/Frannchesco)
 - [Maria Rita Ribeiro Resende](https://github.com/mariaritaresende) 
 
