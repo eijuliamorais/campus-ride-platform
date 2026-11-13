@@ -85,6 +85,65 @@ curl -i http://localhost:8000/app/v1/status | grep -i x-correlation-id
 
 Limpar: `docker rm -f api-gateway bff-app bff-painel usuarios-service; docker network rm uniride-teste`.
 
+## Imagens da Pessoa 2
+
+| Aplicação | Pasta | Imagem | Porta (container) | Porta de teste (host) |
+| --- | --- | --- | --- | --- |
+| Serviço de caronas | `backend/services/caronas-service` | `uniride/caronas-service:dev` | 8000 | 8011 |
+| Serviço de solicitações | `backend/services/solicitacoes-service` | `uniride/solicitacoes-service:dev` | 8000 | 8012 |
+| Serviço de viagens | `backend/services/viagens-service` | `uniride/viagens-service:dev` | 8000 | 8013 |
+| Serviço de avaliações e rateio | `backend/services/avaliacoes-rateio-service` | `uniride/avaliacoes-rateio-service:dev` | 8000 | 8014 |
+
+Os quatro usam o mesmo Dockerfile do `usuarios-service` (multi-stage, UID `10001`, `/health` sem banco). Só mudam o nome do serviço e o prefixo da rota de status. Como os de usuários, os `app/main.py` são **esqueletos**.
+
+| Serviço | Rota de status |
+| --- | --- |
+| `caronas-service` | `/api/v1/caronas/status` |
+| `solicitacoes-service` | `/api/v1/solicitacoes/status` |
+| `viagens-service` | `/api/v1/viagens/status` |
+| `avaliacoes-rateio-service` | `/api/v1/avaliacoes/status` |
+
+### Construir
+
+Na raiz do repositório:
+
+```bash
+docker build -t uniride/caronas-service:dev            backend/services/caronas-service
+docker build -t uniride/solicitacoes-service:dev       backend/services/solicitacoes-service
+docker build -t uniride/viagens-service:dev            backend/services/viagens-service
+docker build -t uniride/avaliacoes-rateio-service:dev  backend/services/avaliacoes-rateio-service
+```
+
+### Executar e testar cada container sozinho
+
+```bash
+docker run -d --name caronas-service -p 8011:8000 uniride/caronas-service:dev
+curl http://localhost:8011/health                 # {"status":"ok","service":"caronas-service"}
+curl http://localhost:8011/api/v1/caronas/status
+
+docker run -d --name solicitacoes-service -p 8012:8000 uniride/solicitacoes-service:dev
+curl http://localhost:8012/health
+curl http://localhost:8012/api/v1/solicitacoes/status
+
+docker run -d --name viagens-service -p 8013:8000 uniride/viagens-service:dev
+curl http://localhost:8013/health
+curl http://localhost:8013/api/v1/viagens/status
+
+docker run -d --name avaliacoes-rateio-service -p 8014:8000 uniride/avaliacoes-rateio-service:dev
+curl http://localhost:8014/health
+curl http://localhost:8014/api/v1/avaliacoes/status
+```
+
+Conferências (exemplo com o `caronas-service`, vale para os outros):
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' caronas-service   # healthy
+docker exec caronas-service id                                       # uid=10001(app), não é root
+docker logs caronas-service
+```
+
+Limpar: `docker rm -f caronas-service solicitacoes-service viagens-service avaliacoes-rateio-service`.
+
 ## Variáveis de ambiente
 
 Os esqueletos ainda não usam banco nem Kafka. Estas são as variáveis previstas pela arquitetura, para o Compose (Pessoa 3) e os ConfigMaps/Secrets (Pessoa 4):
@@ -97,6 +156,12 @@ Os esqueletos ainda não usam banco nem Kafka. Estas são as variáveis prevista
 | usuarios-service | `JWT_PRIVATE_KEY` | chave de assinatura dos tokens | sim |
 | bff-app | `CARONAS_SERVICE_URL`, `SOLICITACOES_SERVICE_URL`, `AVALIACOES_RATEIO_SERVICE_URL`, `USUARIOS_SERVICE_URL` | `http://caronas-service:8000` | não |
 | bff-painel | as URLs acima + `VIAGENS_SERVICE_URL` | `http://viagens-service:8000` | não |
+| caronas-service | `DATABASE_URL` | `postgresql://caronas:***@caronas-db:5432/caronas` (PostgreSQL/PostGIS) | sim |
+| solicitacoes-service | `DATABASE_URL` | `postgresql://solicitacoes:***@solicitacoes-db:5432/solicitacoes` | sim |
+| solicitacoes-service | `MONGODB_URL` | `mongodb://solicitacoes:***@solicitacoes-mongo:27017/solicitacoes` | sim |
+| viagens-service | `MONGODB_URL` | `mongodb://viagens:***@viagens-mongo:27017/viagens` | sim |
+| avaliacoes-rateio-service | `DATABASE_URL` | `postgresql://avaliacoes:***@avaliacoes-db:5432/avaliacoes` | sim |
+| caronas, solicitacoes, viagens e avaliacoes-rateio | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092` | não |
 | api-gateway | `KONG_*` | já definidas no Dockerfile; dá para sobrescrever no Compose/K8s | não |
 
 ## Para o Kubernetes (Pessoa 4)
