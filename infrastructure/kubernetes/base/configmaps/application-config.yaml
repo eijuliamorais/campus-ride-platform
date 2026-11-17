@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: uniride-application-config
+  namespace: uniride
+data:
+  USUARIOS_SERVICE_URL: "http://usuarios-service:8000"
+  CARONAS_SERVICE_URL: "http://caronas-service:8000"
+  SOLICITACOES_SERVICE_URL: "http://solicitacoes-service:8000"
+  VIAGENS_SERVICE_URL: "http://viagens-service:8000"
+  AVALIACOES_SERVICE_URL: "http://avaliacoes-rateio-service:8000"
