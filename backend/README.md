@@ -1,6 +1,6 @@
 # Backend — imagens Docker
 
-Como construir, executar e testar as imagens do backend da UniRide (Parte 3).
+Como construir, executar e testar as 8 imagens do backend da UniRide (Parte 3). Para subir tudo junto, com bancos, Kafka e Redis, use o Docker Compose: [infrastructure/docker/README.md](../infrastructure/docker/README.md).
 
 ## Padrões combinados
 
@@ -146,29 +146,27 @@ Limpar: `docker rm -f caronas-service solicitacoes-service viagens-service avali
 
 ## Variáveis de ambiente
 
-Os esqueletos ainda não usam banco nem Kafka. Estas são as variáveis previstas pela arquitetura, para o Compose (Pessoa 3) e os ConfigMaps/Secrets (Pessoa 4):
+Os esqueletos só leem `SERVICE_NAME`; as demais variáveis já são entregues pelo Docker Compose para quando o código real usar bancos, Kafka e Redis. Os valores abaixo são os do `infrastructure/docker/docker-compose.yml` (as senhas vêm do `.env`, que não é versionado).
 
-| Aplicação | Variável | Exemplo | Secret? |
-| --- | --- | --- | --- |
-| todas as Python | `SERVICE_NAME` | `bff-app` (já vem na imagem) | não |
-| usuarios-service | `DATABASE_URL` | `postgresql://usuarios:***@usuarios-db:5432/usuarios` | sim |
-| usuarios-service | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092` | não |
-| usuarios-service | `JWT_PRIVATE_KEY` | chave de assinatura dos tokens | sim |
-| bff-app | `CARONAS_SERVICE_URL`, `SOLICITACOES_SERVICE_URL`, `AVALIACOES_RATEIO_SERVICE_URL`, `USUARIOS_SERVICE_URL` | `http://caronas-service:8000` | não |
-| bff-painel | as URLs acima + `VIAGENS_SERVICE_URL` | `http://viagens-service:8000` | não |
-| caronas-service | `DATABASE_URL` | `postgresql://caronas:***@caronas-db:5432/caronas` (PostgreSQL/PostGIS) | sim |
-| solicitacoes-service | `DATABASE_URL` | `postgresql://solicitacoes:***@solicitacoes-db:5432/solicitacoes` | sim |
-| solicitacoes-service | `MONGODB_URL` | `mongodb://solicitacoes:***@solicitacoes-mongo:27017/solicitacoes` | sim |
-| viagens-service | `MONGODB_URL` | `mongodb://viagens:***@viagens-mongo:27017/viagens` | sim |
-| avaliacoes-rateio-service | `DATABASE_URL` | `postgresql://avaliacoes:***@avaliacoes-db:5432/avaliacoes` | sim |
-| caronas, solicitacoes, viagens e avaliacoes-rateio | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092` | não |
-| api-gateway | `KONG_*` | já definidas no Dockerfile; dá para sobrescrever no Compose/K8s | não |
+| Aplicação | Variáveis | Exemplo |
+| --- | --- | --- |
+| todas as Python | `SERVICE_NAME` | `caronas-service` (já vem na imagem) |
+| bff-app | `USUARIOS_SERVICE_URL`, `CARONAS_SERVICE_URL`, `SOLICITACOES_SERVICE_URL`, `VIAGENS_SERVICE_URL`, `AVALIACOES_SERVICE_URL`, `KAFKA_BOOTSTRAP_SERVERS` | `http://caronas-service:8000`, `kafka:9092` |
+| bff-painel | as mesmas cinco URLs (sem Kafka) | `http://viagens-service:8000` |
+| usuarios-service | `DATABASE_URL`, `REDIS_URL`, `KAFKA_BOOTSTRAP_SERVERS` | `postgresql://usuarios_user:***@postgres-usuarios:5432/uniride_usuarios` |
+| caronas-service | `DATABASE_URL` (PostGIS), `KAFKA_BOOTSTRAP_SERVERS` | `postgresql://caronas_user:***@postgres-caronas:5432/uniride_caronas` |
+| solicitacoes-service | `DATABASE_URL`, `MONGODB_URL`, `KAFKA_BOOTSTRAP_SERVERS` | `mongodb://solicitacoes_mongo:***@mongo-solicitacoes:27017/uniride_solicitacoes_read?authSource=admin` |
+| viagens-service | `MONGODB_URL`, `KAFKA_BOOTSTRAP_SERVERS` | `mongodb://viagens_mongo:***@mongo-viagens:27017/uniride_viagens?authSource=admin` |
+| avaliacoes-rateio-service | `DATABASE_URL`, `KAFKA_BOOTSTRAP_SERVERS` | `postgresql://avaliacoes_user:***@postgres-avaliacoes:5432/uniride_avaliacoes` |
+| api-gateway | `KONG_*` | definidas no Dockerfile; podem ser sobrescritas no Compose ou no Kubernetes |
+
+No Kubernetes, os BFFs recebem as cinco URLs pelo ConfigMap `uniride-application-config`. Descrição completa das variáveis do `.env`: [infrastructure/docker/README.md](../infrastructure/docker/README.md).
 
 ## Para o Kubernetes (Pessoa 4)
 
 - Probes dos serviços Python: `httpGet` em `/health`, porta `8000`.
 - Probes do gateway: `httpGet` em `/status/ready`, porta `8100`.
-- `securityContext.runAsNonRoot: true` funciona porque as imagens usam UID numérico.
+- `securityContext.runAsNonRoot: true` funciona nas imagens Python porque elas usam UID numérico (10001). O Kong roda como usuário `kong` (UID 1001) da imagem oficial.
 - Com mais de uma réplica do gateway, o limite de uso precisa ir para o Redis (`policy: redis` no `kong.yml`), senão cada réplica conta separado.
 
 ## Pendências do gateway

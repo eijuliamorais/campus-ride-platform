@@ -76,6 +76,11 @@ C="docker compose -f infrastructure/docker/docker-compose.yml --env-file infrast
 $C ps                                   # todos devem estar healthy
 $C logs --tail=30 2>&1 | grep -i -E "error|fatal|exception|traceback"   # sem saída = sem erros
 
+# Gateway roteando para as 7 aplicações (uma linha por serviço)
+for p in app/v1 painel/v1 api/v1/usuarios api/v1/caronas api/v1/solicitacoes api/v1/viagens api/v1/avaliacoes; do
+  curl -s http://localhost:8000/$p/status; echo
+done
+
 # Comunicação entre aplicações (BFF -> serviço pelo nome do container)
 $C exec bff-app python -c "import urllib.request; print(urllib.request.urlopen('http://usuarios-service:8000/health').read().decode())"
 
