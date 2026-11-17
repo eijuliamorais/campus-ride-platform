@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   # Namespace
   - namespaces/namespace.yaml
+  - configmaps/application-config.yaml
 
   # Deployments
   - deployments/api-gateway-deployment.yaml

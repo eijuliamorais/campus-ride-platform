@@ -25,6 +25,9 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: uniride-application-config
           env:
             - name: SERVICE_NAME
               value: bff-painel
