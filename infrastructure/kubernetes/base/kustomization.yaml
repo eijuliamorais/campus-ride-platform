@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # Namespace
+  - namespaces/namespace.yaml
+
+  # Deployments
+  - deployments/api-gateway-deployment.yaml
+  - deployments/usuarios-service-deployment.yaml
+  - deployments/caronas-service-deployment.yaml
+  - deployments/solicitacoes-service-deployment.yaml
+  - deployments/viagens-service-deployment.yaml
+  - deployments/avaliacoes-rateio-service-deployment.yaml
+  - deployments/bff-app-deployment.yaml
+  - deployments/bff-painel-deployment.yaml
+
+  # Services
+  - services/api-gateway-service.yaml
+  - services/usuarios-service.yaml
+  - services/caronas-service.yaml
+  - services/solicitacoes-service.yaml
+  - services/viagens-service.yaml
+  - services/avaliacoes-rateio-service.yaml
+  - services/bff-app-service.yaml
+  - services/bff-painel-service.yaml
+  # Ingress
+  - ingress/api-gateway-ingress.yaml
