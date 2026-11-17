@@ -1,0 +1,283 @@
+name: uniride
+
+services:
+  api-gateway:
+    build:
+      context: ../../backend/api-gateway
+      dockerfile: Dockerfile
+    image: uniride/api-gateway:dev
+    container_name: api-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PROXY_PORT:-8000}:8000"
+      - "${GATEWAY_STATUS_PORT:-8100}:8100"
+    depends_on:
+      bff-app: { condition: service_healthy }
+      bff-painel: { condition: service_healthy }
+      usuarios-service: { condition: service_healthy }
+      caronas-service: { condition: service_healthy }
+      solicitacoes-service: { condition: service_healthy }
+      viagens-service: { condition: service_healthy }
+      avaliacoes-rateio-service: { condition: service_healthy }
+    networks: [uniride-edge, uniride-internal]
+
+  bff-app:
+    build:
+      context: ../../backend/bff-app
+      dockerfile: Dockerfile
+    image: uniride/bff-app:dev
+    container_name: bff-app
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: bff-app
+      USUARIOS_SERVICE_URL: http://usuarios-service:8000
+      CARONAS_SERVICE_URL: http://caronas-service:8000
+      SOLICITACOES_SERVICE_URL: http://solicitacoes-service:8000
+      VIAGENS_SERVICE_URL: http://viagens-service:8000
+      AVALIACOES_SERVICE_URL: http://avaliacoes-rateio-service:8000
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      kafka: { condition: service_healthy }
+    networks: [uniride-internal, uniride-data]
+
+  bff-painel:
+    build:
+      context: ../../backend/bff-painel
+      dockerfile: Dockerfile
+    image: uniride/bff-painel:dev
+    container_name: bff-painel
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: bff-painel
+      USUARIOS_SERVICE_URL: http://usuarios-service:8000
+      CARONAS_SERVICE_URL: http://caronas-service:8000
+      SOLICITACOES_SERVICE_URL: http://solicitacoes-service:8000
+      VIAGENS_SERVICE_URL: http://viagens-service:8000
+      AVALIACOES_SERVICE_URL: http://avaliacoes-rateio-service:8000
+    networks: [uniride-internal]
+
+  usuarios-service:
+    build: { context: ../../backend/services/usuarios-service, dockerfile: Dockerfile }
+    image: uniride/usuarios-service:dev
+    container_name: usuarios-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: usuarios-service
+      DATABASE_URL: postgresql://${USUARIOS_DB_USER}:${USUARIOS_DB_PASSWORD}@postgres-usuarios:5432/${USUARIOS_DB_NAME}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres-usuarios: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    networks: [uniride-internal, uniride-data]
+
+  caronas-service:
+    build: { context: ../../backend/services/caronas-service, dockerfile: Dockerfile }
+    image: uniride/caronas-service:dev
+    container_name: caronas-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: caronas-service
+      DATABASE_URL: postgresql://${CARONAS_DB_USER}:${CARONAS_DB_PASSWORD}@postgres-caronas:5432/${CARONAS_DB_NAME}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres-caronas: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    networks: [uniride-internal, uniride-data]
+
+  solicitacoes-service:
+    build: { context: ../../backend/services/solicitacoes-service, dockerfile: Dockerfile }
+    image: uniride/solicitacoes-service:dev
+    container_name: solicitacoes-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: solicitacoes-service
+      DATABASE_URL: postgresql://${SOLICITACOES_DB_USER}:${SOLICITACOES_DB_PASSWORD}@postgres-solicitacoes:5432/${SOLICITACOES_DB_NAME}
+      MONGODB_URL: mongodb://${SOLICITACOES_MONGO_USER}:${SOLICITACOES_MONGO_PASSWORD}@mongo-solicitacoes:27017/${SOLICITACOES_MONGO_DB}?authSource=admin
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres-solicitacoes: { condition: service_healthy }
+      mongo-solicitacoes: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    networks: [uniride-internal, uniride-data]
+
+  viagens-service:
+    build: { context: ../../backend/services/viagens-service, dockerfile: Dockerfile }
+    image: uniride/viagens-service:dev
+    container_name: viagens-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: viagens-service
+      MONGODB_URL: mongodb://${VIAGENS_MONGO_USER}:${VIAGENS_MONGO_PASSWORD}@mongo-viagens:27017/${VIAGENS_MONGO_DB}?authSource=admin
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      mongo-viagens: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    networks: [uniride-internal, uniride-data]
+
+  avaliacoes-rateio-service:
+    build: { context: ../../backend/services/avaliacoes-rateio-service, dockerfile: Dockerfile }
+    image: uniride/avaliacoes-rateio-service:dev
+    container_name: avaliacoes-rateio-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: avaliacoes-rateio-service
+      DATABASE_URL: postgresql://${AVALIACOES_DB_USER}:${AVALIACOES_DB_PASSWORD}@postgres-avaliacoes:5432/${AVALIACOES_DB_NAME}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres-avaliacoes: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    networks: [uniride-internal, uniride-data]
+
+  postgres-usuarios:
+    image: postgres:16-alpine
+    container_name: postgres-usuarios
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${USUARIOS_DB_NAME}
+      POSTGRES_USER: ${USUARIOS_DB_USER}
+      POSTGRES_PASSWORD: ${USUARIOS_DB_PASSWORD}
+    volumes: [pg_usuarios_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${USUARIOS_DB_USER} -d ${USUARIOS_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [uniride-data]
+
+  postgres-caronas:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: postgres-caronas
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CARONAS_DB_NAME}
+      POSTGRES_USER: ${CARONAS_DB_USER}
+      POSTGRES_PASSWORD: ${CARONAS_DB_PASSWORD}
+    volumes: [pg_caronas_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CARONAS_DB_USER} -d ${CARONAS_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [uniride-data]
+
+  postgres-solicitacoes:
+    image: postgres:16-alpine
+    container_name: postgres-solicitacoes
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${SOLICITACOES_DB_NAME}
+      POSTGRES_USER: ${SOLICITACOES_DB_USER}
+      POSTGRES_PASSWORD: ${SOLICITACOES_DB_PASSWORD}
+    volumes: [pg_solicitacoes_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SOLICITACOES_DB_USER} -d ${SOLICITACOES_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [uniride-data]
+
+  postgres-avaliacoes:
+    image: postgres:16-alpine
+    container_name: postgres-avaliacoes
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AVALIACOES_DB_NAME}
+      POSTGRES_USER: ${AVALIACOES_DB_USER}
+      POSTGRES_PASSWORD: ${AVALIACOES_DB_PASSWORD}
+    volumes: [pg_avaliacoes_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AVALIACOES_DB_USER} -d ${AVALIACOES_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [uniride-data]
+
+  mongo-solicitacoes:
+    image: mongo:7
+    container_name: mongo-solicitacoes
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${SOLICITACOES_MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${SOLICITACOES_MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE: ${SOLICITACOES_MONGO_DB}
+    volumes: [mongo_solicitacoes_data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [uniride-data]
+
+  mongo-viagens:
+    image: mongo:7
+    container_name: mongo-viagens
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${VIAGENS_MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${VIAGENS_MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE: ${VIAGENS_MONGO_DB}
+    volumes: [mongo_viagens_data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [uniride-data]
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+    volumes: [kafka_data:/var/lib/kafka/data]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks: [uniride-data]
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [uniride-data]
+
+volumes:
+  pg_usuarios_data:
+  pg_caronas_data:
+  pg_solicitacoes_data:
+  pg_avaliacoes_data:
+  mongo_solicitacoes_data:
+  mongo_viagens_data:
+  kafka_data:
+  redis_data:
+
+networks:
+  uniride-edge: { driver: bridge }
+  uniride-internal: { driver: bridge, internal: true }
+  uniride-data: { driver: bridge, internal: true }
