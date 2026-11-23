@@ -63,6 +63,108 @@ As aplicações utilizam imagens Docker com o padrão `uniride/nome-da-aplicacao
 As imagens locais foram disponibilizadas ao runtime containerd do cluster por meio da exportação e importação dos arquivos de imagem.
 
 Os Deployments utilizam `imagePullPolicy: Never`, pois as imagens são disponibilizadas localmente no cluster.
+### 4.1. Disponibilização das imagens no cluster
+
+O cluster Kubernetes integrado ao Docker Desktop utiliza o runtime `containerd`, que não compartilha automaticamente todas as imagens disponíveis no Docker Engine.
+
+Para disponibilizar as imagens locais ao cluster, foi utilizado o procedimento de exportação com `docker save`, transferência para o container `desktop-control-plane` e importação com `ctr`.
+
+Os comandos abaixo devem ser executados no PowerShell, com o Docker Desktop e o Kubernetes integrados em execução, a partir da raiz do repositório.
+
+```powershell
+$images = @(
+    "api-gateway",
+    "bff-app",
+    "bff-painel",
+    "usuarios-service",
+    "caronas-service",
+    "solicitacoes-service",
+    "viagens-service",
+    "avaliacoes-rateio-service"
+)
+
+foreach ($name in $images) {
+    $image = "uniride/{0}:dev" -f $name
+    $tar = Join-Path $env:TEMP ("uniride-{0}-dev.tar" -f $name)
+    $remoteTar = "/root/uniride-{0}-dev.tar" -f $name
+
+    docker save -o $tar $image
+    docker cp $tar "desktop-control-plane:$remoteTar"
+    docker exec desktop-control-plane ctr -n k8s.io images import $remoteTar
+
+    Remove-Item $tar
+}
+```
+
+O procedimento foi executado para as oito imagens. A importação foi concluída com sucesso.
+
+Para verificar as imagens disponíveis no runtime do cluster:
+
+```powershell
+docker exec desktop-control-plane ctr -n k8s.io images list
+```
+
+As oito imagens foram identificadas com as tags:
+
+- `docker.io/uniride/api-gateway:dev`
+- `docker.io/uniride/bff-app:dev`
+- `docker.io/uniride/bff-painel:dev`
+- `docker.io/uniride/usuarios-service:dev`
+- `docker.io/uniride/caronas-service:dev`
+- `docker.io/uniride/solicitacoes-service:dev`
+- `docker.io/uniride/viagens-service:dev`
+- `docker.io/uniride/avaliacoes-rateio-service:dev`
+
+Essa estratégia é específica do ambiente Docker Desktop utilizado. Em outro cluster, a disponibilização das imagens poderá exigir o uso de um registry ou outro procedimento de distribuição.
+
+Os arquivos `.tar` são temporários e não devem ser versionados no repositório.
+
+### 4.2. Instalação do Traefik com Helm
+
+O Traefik foi instalado como Ingress Controller utilizando o Helm.
+
+Foi utilizado o repositório oficial:
+
+```powershell
+helm repo add traefik https://traefik.github.io/charts
+helm repo update
+```
+
+A instalação foi realizada com o chart `traefik/traefik`, versão `42.4.0`, correspondente à aplicação Traefik `v3.7.18`.
+
+```powershell
+helm upgrade --install traefik traefik/traefik `
+    --version 42.4.0 `
+    --namespace traefik `
+    --create-namespace `
+    --set service.spec.type=NodePort `
+    --set ports.web.nodePort=30080 `
+    --set ports.websecure.nodePort=30443 `
+    --set ingressClass.enabled=true `
+    --set ingressClass.isDefaultClass=true `
+    --set providers.kubernetesIngress.enabled=true
+```
+
+O comando configura:
+
+- Namespace `traefik`.
+- Service do tipo `NodePort`.
+- Porta HTTP `30080`.
+- Porta HTTPS `30443`.
+- Classe de Ingress `traefik` como classe padrão.
+- Provedor de Ingress do Kubernetes habilitado.
+
+Para verificar a instalação:
+
+```powershell
+kubectl get pods -n traefik
+kubectl get services -n traefik
+kubectl get ingressclass
+```
+
+A instalação foi concluída com sucesso. O Pod do Traefik ficou em estado `Running`, o Service foi criado com as portas NodePort configuradas e a classe `traefik` foi registrada como padrão do cluster.
+
+O acesso direto pelas portas NodePort no host Windows não foi validado com sucesso. O acesso HTTP ao UniRide foi validado por meio de `kubectl port-forward`, conforme descrito na seção 10.
 
 ## 5. Namespace
 
