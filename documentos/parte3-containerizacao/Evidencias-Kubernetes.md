@@ -312,3 +312,112 @@ Os testes realizados demonstraram:
 - A restauração do BFF App para uma réplica após o teste.
 
 Assim, a camada de implantação e orquestração das oito aplicações backend foi validada no ambiente Kubernetes local, respeitando as limitações de integração de infraestrutura descritas neste documento.
+
+## 14. Importação das imagens para o containerd
+
+As oito imagens Docker do UniRide foram transferidas para o runtime `containerd` do cluster Kubernetes integrado ao Docker Desktop.
+
+Foi utilizado um procedimento com `docker save`, `docker cp` e `ctr images import`.
+
+O procedimento foi executado para as seguintes imagens:
+
+```text
+uniride/api-gateway:dev
+uniride/bff-app:dev
+uniride/bff-painel:dev
+uniride/usuarios-service:dev
+uniride/caronas-service:dev
+uniride/solicitacoes-service:dev
+uniride/viagens-service:dev
+uniride/avaliacoes-rateio-service:dev
+```
+
+Comando utilizado para verificar as imagens importadas:
+
+```powershell
+docker exec desktop-control-plane ctr -n k8s.io images list
+```
+
+Resultado: as oito imagens foram identificadas na listagem do containerd, com referências no formato `docker.io/uniride/<aplicacao>:dev`.
+
+A importação foi concluída com sucesso para todas as aplicações. Isso permitiu que os Deployments utilizassem as imagens locais com `imagePullPolicy: Never`, sem depender de um registry externo.
+
+## 15. Instalação e verificação do Traefik
+
+O Traefik foi instalado no cluster Kubernetes por meio do Helm, utilizando o chart oficial `traefik/traefik`, versão `42.4.0`, com Traefik `v3.7.18`.
+
+O comando de instalação foi executado:
+
+```powershell
+helm upgrade --install traefik traefik/traefik `
+    --version 42.4.0 `
+    --namespace traefik `
+    --create-namespace `
+    --set service.spec.type=NodePort `
+    --set ports.web.nodePort=30080 `
+    --set ports.websecure.nodePort=30443 `
+    --set ingressClass.enabled=true `
+    --set ingressClass.isDefaultClass=true `
+    --set providers.kubernetesIngress.enabled=true
+```
+
+A instalação foi concluída com sucesso. O Helm retornou o release `traefik` com estado `deployed`, na revisão 2.
+
+### 15.1. Pod e Service
+
+Comandos utilizados:
+
+```powershell
+kubectl get pods -n traefik
+kubectl get services -n traefik
+```
+
+Resultado observado:
+
+```text
+Pod:
+traefik-556f65694d-k6bkw   1/1   Running
+
+Service:
+traefik   NodePort   10.96.195.5   <none>   80:30080/TCP,443:30443/TCP
+```
+
+O Pod ficou pronto e o Service foi configurado com as portas HTTP e HTTPS previstas.
+
+### 15.2. Classe de Ingress
+
+Comando utilizado:
+
+```powershell
+kubectl get ingressclass
+```
+
+Resultado observado:
+
+```text
+NAME      CONTROLLER                    PARAMETERS
+traefik   traefik.io/ingress-controller   <none>
+```
+
+A classe `traefik` foi registrada como classe padrão do cluster.
+
+### 15.3. Ingress do UniRide
+
+Comando utilizado:
+
+```powershell
+kubectl get ingress -n uniride
+```
+
+Resultado observado:
+
+```text
+NAME                 CLASS     HOSTS          ADDRESS   PORTS
+uniride-api-gateway  traefik   uniride.local             80
+```
+
+O recurso `uniride-api-gateway` está associado à classe `traefik` e direciona as requisições do host `uniride.local` ao API Gateway.
+
+O campo `ADDRESS` permaneceu vazio na saída apresentada. Isso não foi utilizado isoladamente como critério de falha, pois o caminho HTTP foi validado por meio do encaminhamento de porta.
+
+O acesso direto pelo NodePort no host Windows continua sem validação bem-sucedida. A comunicação pelo Ingress foi comprovada com o teste HTTP documentado na seção 7.
