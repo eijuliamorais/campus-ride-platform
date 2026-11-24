@@ -1,0 +1,3 @@
+# A imagem do gateway só precisa do kong.yml (o Dockerfile é enviado de qualquer forma).
+*
+!kong.yml

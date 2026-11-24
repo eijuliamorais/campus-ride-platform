@@ -1,0 +1,45 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: uniride
+  labels:
+    app: api-gateway
+    app.kubernetes.io/part-of: uniride
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        app.kubernetes.io/part-of: uniride
+    spec:
+      containers:
+        - name: api-gateway
+          image: uniride/api-gateway:dev
+          imagePullPolicy: Never
+          ports:
+            - name: proxy
+              containerPort: 8000
+              protocol: TCP
+            - name: status
+              containerPort: 8100
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /status/ready
+              port: status
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status/ready
+              port: status
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false

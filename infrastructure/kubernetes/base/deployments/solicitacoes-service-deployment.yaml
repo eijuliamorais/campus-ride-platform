@@ -1,0 +1,48 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: solicitacoes-service
+  namespace: uniride
+  labels:
+    app: solicitacoes-service
+    app.kubernetes.io/part-of: uniride
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: solicitacoes-service
+  template:
+    metadata:
+      labels:
+        app: solicitacoes-service
+        app.kubernetes.io/part-of: uniride
+    spec:
+      containers:
+        - name: solicitacoes-service
+          image: uniride/solicitacoes-service:dev
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: solicitacoes-service
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false

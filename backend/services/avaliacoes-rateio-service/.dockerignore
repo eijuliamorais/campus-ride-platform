@@ -1,0 +1,23 @@
+# Ambiente e caches locais
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Segredos: nunca entram na imagem (vêm por variável de ambiente)
+.env
+.env.*
+
+# Arquivos que não são necessários dentro da imagem
+tests
+*.md
+.git
+.gitignore
+.gitkeep
+.vscode
+.idea
+Dockerfile
+.dockerignore

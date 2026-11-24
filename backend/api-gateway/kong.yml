@@ -1,0 +1,142 @@
+# Configuração declarativa do API Gateway (Kong DB-less).
+# Segue a tabela "Regras de roteamento" da seção 4.3 de documentos/parte2-arquitetura/Arquitetura.md.
+#
+# - Os hosts (usuarios-service, caronas-service...) são os nomes dos containers
+#   no Docker Compose e dos Services no Kubernetes; todos escutam na porta 8000.
+# - strip_path: false em todas as rotas: o gateway não altera o caminho da API.
+# - /api/v1/indicadores/** e qualquer caminho não listado não têm rota, então o
+#   Kong devolve 404 (regras 12 e 13): só o bff-painel chama indicadores, pela rede interna.
+# - Limites de uso por IP e em memória (policy: local) por enquanto. Quando o
+#   JWT estiver pronto, passar para limit_by: consumer e policy: redis (host redis).
+
+_format_version: "3.0"
+
+plugins:
+  # Rastreabilidade: gera X-Correlation-Id quando o cliente não manda e repassa adiante.
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-Id
+      generator: uuid
+      echo_downstream: true
+
+services:
+  # ---------------- Regra 4: usuarios-service ----------------
+  - name: usuarios-service
+    url: http://usuarios-service:8000
+    plugins:
+      - name: rate-limiting
+        config: { minute: 20, limit_by: ip, policy: local }
+    routes:
+      - name: usuarios-login
+        methods: [POST]
+        paths: [/api/v1/sessoes]
+        strip_path: false
+        plugins:
+          # Login é a rota mais restrita (anti força bruta).
+          - name: rate-limiting
+            config: { minute: 5, limit_by: ip, policy: local }
+      - name: usuarios
+        paths:
+          - /api/v1/usuarios
+          - /api/v1/verificacoes
+          - /api/v1/sessoes
+          - /api/v1/chaves-publicas
+        strip_path: false
+
+  # ---------------- Regra 6: caronas-service ----------------
+  - name: caronas-service
+    url: http://caronas-service:8000
+    plugins:
+      - name: rate-limiting
+        config: { minute: 60, limit_by: ip, policy: local }
+    routes:
+      - name: caronas
+        paths: [/api/v1/caronas]
+        strip_path: false
+
+  # ---------------- Regras 5 e 7: solicitacoes-service ----------------
+  - name: solicitacoes-service
+    url: http://solicitacoes-service:8000
+    plugins:
+      - name: rate-limiting
+        config: { minute: 60, limit_by: ip, policy: local }
+    routes:
+      - name: caronas-compativeis
+        paths: [/api/v1/caronas-compativeis]
+        strip_path: false
+      - name: solicitacoes
+        paths: [/api/v1/solicitacoes]
+        strip_path: false
+
+  # ---------------- Regras 1, 2, 3 e 8: viagens-service ----------------
+  # Limites por rota (e não no serviço) para o alerta de emergência ficar isento.
+  - name: viagens-service
+    url: http://viagens-service:8000
+    routes:
+      - name: viagens-alerta-emergencia
+        methods: [POST]
+        paths: ["~/api/v1/viagens/[^/]+/alertas-emergencia$"]
+        regex_priority: 100
+        strip_path: false
+        # Sem rate-limiting: alerta de emergência é isento.
+      - name: viagens-posicoes
+        methods: [POST]
+        paths: ["~/api/v1/viagens/[^/]+/posicoes$"]
+        regex_priority: 90
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config: { minute: 120, limit_by: ip, policy: local }
+      - name: viagens-compartilhadas
+        methods: [GET]
+        paths: [/api/v1/viagens-compartilhadas]
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config: { minute: 30, limit_by: ip, policy: local }
+      - name: viagens
+        paths:
+          - /api/v1/viagens
+          - /api/v1/alertas-emergencia
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config: { minute: 60, limit_by: ip, policy: local }
+
+  # ---------------- Regra 9: avaliacoes-rateio-service ----------------
+  - name: avaliacoes-rateio-service
+    url: http://avaliacoes-rateio-service:8000
+    plugins:
+      - name: rate-limiting
+        config: { minute: 60, limit_by: ip, policy: local }
+    routes:
+      - name: avaliacoes-rateio
+        paths:
+          - /api/v1/avaliacoes
+          - /api/v1/reputacoes
+          - /api/v1/contribuicoes
+          - /api/v1/estimativas-contribuicao
+          - /api/v1/economia
+        strip_path: false
+
+  # ---------------- Regra 10: bff-app ----------------
+  - name: bff-app
+    url: http://bff-app:8000
+    plugins:
+      - name: rate-limiting
+        config: { minute: 60, limit_by: ip, policy: local }
+    routes:
+      - name: bff-app
+        paths: [/app/v1]
+        strip_path: false
+
+  # ---------------- Regra 11: bff-painel ----------------
+  - name: bff-painel
+    url: http://bff-painel:8000
+    plugins:
+      - name: rate-limiting
+        config: { minute: 30, limit_by: ip, policy: local }
+    routes:
+      - name: bff-painel
+        paths: [/painel/v1]
+        strip_path: false
