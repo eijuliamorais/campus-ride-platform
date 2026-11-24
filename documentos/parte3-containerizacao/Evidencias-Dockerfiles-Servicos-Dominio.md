@@ -1,6 +1,6 @@
-# Evidências — Parte 3, Pessoa 2 (Dockerfiles dos microsserviços de domínio)
+# Evidências — Parte 3: Dockerfiles dos microsserviços de domínio
 
-Data dos testes: 23/11/2026 · Branch: `parte3/dockerfiles-pessoa2` · Commit testado: `765b522`
+Data dos testes: 23/11/2026 · Commit testado: `765b522`
 
 Ambiente: Ubuntu 24.04 · Docker 29.8.2
 
@@ -8,7 +8,7 @@ Serviços cobertos: `caronas-service`, `solicitacoes-service`, `viagens-service`
 
 ## 1. Escopo
 
-Este documento registra a construção e o teste dos quatro Dockerfiles dos microsserviços de domínio. Todos partem do molde do `usuarios-service` (Pessoa 1), alterando apenas o nome do serviço e o prefixo da rota de status. Os testes foram executados em sequência por um script auxiliar local, e o resultado completo está nas seções abaixo.
+Este documento registra a construção e o teste dos quatro Dockerfiles dos microsserviços de domínio. Todos partem do molde do `usuarios-service`, alterando apenas o nome do serviço e o prefixo da rota de status. Os testes foram executados em sequência por um script auxiliar local, e o resultado completo está nas seções abaixo.
 
 ## 2. Construção das imagens
 
@@ -65,7 +65,7 @@ Esses resultados confirmam que os containers iniciam sem erros, respondem em `/h
 
 ## 4. Teste pelo API Gateway
 
-Os quatro serviços e o `api-gateway` (imagem da Pessoa 1) foram executados numa mesma rede Docker, com o nome de cada container igual ao nome do serviço, como o `kong.yml` espera. Apenas o gateway publicou portas no host (8000 e 8100).
+Os quatro serviços e o `api-gateway` foram executados numa mesma rede Docker, com o nome de cada container igual ao nome do serviço, como o `kong.yml` espera. Apenas o gateway publicou portas no host (8000 e 8100).
 
 Comandos utilizados:
 
@@ -108,19 +108,19 @@ O resultado mostra que o gateway encontra cada serviço pelo nome do container, 
 | `.dockerignore` | Arquivo idêntico ao do molde, em cada pasta de serviço |
 | Construir as imagens | Seção 2 |
 | Executar e testar cada container individualmente | Seção 3 |
-| Documentar como construir e executar | `backend/README.md`, seção "Imagens da Pessoa 2" |
+| Documentar como construir e executar | `backend/README.md`, seção "Imagens dos serviços de domínio" |
 
 ## 6. Uso das imagens nas etapas seguintes
 
-As imagens deste documento foram usadas na integração feita pelas demais pessoas, cujos resultados constam em seus próprios documentos de evidências:
+As imagens deste documento foram usadas nas etapas de integração, cujos resultados constam nos respectivos documentos de evidências:
 
-- **Pessoa 3 (Docker Compose):** o `docker compose up -d --build` construiu as 8 imagens e subiu 16 containers `healthy`, incluindo os quatro serviços de domínio.
-- **Pessoa 4 (Kubernetes):** os oito Deployments, incluindo os quatro serviços de domínio, ficaram com uma réplica disponível e responderam HTTP 200 em `/health` dentro do cluster.
+- **Docker Compose:** o `docker compose up -d --build` construiu as 8 imagens e subiu 16 containers `healthy`, incluindo os quatro serviços de domínio.
+- **Kubernetes:** os oito Deployments, incluindo os quatro serviços de domínio, ficaram com uma réplica disponível e responderam HTTP 200 em `/health` dentro do cluster.
 
 ## 7. Limitações
 
 - Os `app/main.py` dos quatro serviços são **esqueletos**: respondem somente `/health` e a rota de status. Não há regra de negócio implementada.
-- Os testes desta pessoa cobrem a imagem, a execução do container e o roteamento pelo gateway. **Não** validam acesso a banco de dados, Kafka ou Redis, já que os esqueletos não os utilizam. A comunicação de rede entre os serviços e seus bancos foi verificada pela Pessoa 3, no ambiente Docker Compose.
+- Os testes deste documento cobrem a imagem, a execução do container e o roteamento pelo gateway. **Não** validam acesso a banco de dados, Kafka ou Redis, já que os esqueletos não os utilizam. A comunicação de rede entre os serviços e seus bancos foi verificada no ambiente Docker Compose ([Evidencias-Docker-Compose.md](Evidencias-Docker-Compose.md)).
 - O teste pelo gateway foi feito numa rede Docker criada para a evidência, e não pelo Docker Compose do projeto.
 - Os builds deste registro usaram o cache de camadas. A saída completa de uma construção do zero não está incluída.
 - Os testes foram executados em um único computador (Ubuntu 24.04), com uma instância de cada serviço.

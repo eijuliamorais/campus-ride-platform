@@ -1,6 +1,6 @@
-# Evidências — Parte 3, Pessoa 1 (Dockerfiles do gateway, BFFs e usuarios-service)
+# Evidências — Parte 3: Dockerfiles do gateway, dos BFFs e do usuarios-service
 
-Data dos testes: 11/11/2026 · Branch: `parte3/dockerfiles-pessoa1` (PR #1) · Ambiente: Ubuntu 24.04, Docker 29.1.3, Docker Compose 2.40.3
+Data dos testes: 11/11/2026 · Pull Request #1 · Ambiente: Ubuntu 24.04, Docker 29.1.3, Docker Compose 2.40.3
 
 Imagens testadas: `uniride/api-gateway:dev`, `uniride/bff-app:dev`, `uniride/bff-painel:dev`, `uniride/usuarios-service:dev`.
 

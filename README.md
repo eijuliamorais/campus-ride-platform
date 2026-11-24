@@ -132,10 +132,10 @@ As imagens precisam estar disponíveis no cluster antes do `apply` (os Deploymen
 | [backend/README.md](backend/README.md) | Como construir, executar e testar cada uma das 8 imagens |
 | [infrastructure/docker/README.md](infrastructure/docker/README.md) | Docker Compose: containers, redes, volumes, portas e variáveis |
 | [documentos/parte3-containerizacao/Kubernetes.md](documentos/parte3-containerizacao/Kubernetes.md) | Implantação no Kubernetes |
-| [documentos/parte3-containerizacao/evidencias-pessoa1.md](documentos/parte3-containerizacao/evidencias-pessoa1.md) | Testes das imagens do gateway, BFFs e usuarios-service |
-| [documentos/parte3-containerizacao/Evidencias-Dockerfiles-Servicos-Dominio.md](documentos/parte3-containerizacao/Evidencias-Dockerfiles-Servicos-Dominio.md) | Testes das imagens dos 4 serviços de domínio (Pessoa 2) |
-| [documentos/parte3-containerizacao/evidencias-pessoa3.md](documentos/parte3-containerizacao/evidencias-pessoa3.md) | Testes do Docker Compose (subida, bancos, redes, persistência) |
-| [documentos/parte3-containerizacao/evidencias-integracao-final.md](documentos/parte3-containerizacao/evidencias-integracao-final.md) | Teste do sistema completo no Compose: gateway roteando para as 7 aplicações, redes, bancos, persistência |
+| [documentos/parte3-containerizacao/Evidencias-Dockerfiles-Gateway-BFFs-Usuarios.md](documentos/parte3-containerizacao/Evidencias-Dockerfiles-Gateway-BFFs-Usuarios.md) | Testes das imagens do gateway, BFFs e usuarios-service |
+| [documentos/parte3-containerizacao/Evidencias-Dockerfiles-Servicos-Dominio.md](documentos/parte3-containerizacao/Evidencias-Dockerfiles-Servicos-Dominio.md) | Testes das imagens dos 4 serviços de domínio |
+| [documentos/parte3-containerizacao/Evidencias-Docker-Compose.md](documentos/parte3-containerizacao/Evidencias-Docker-Compose.md) | Testes do Docker Compose (subida, bancos, redes, persistência) |
+| [documentos/parte3-containerizacao/Evidencias-Integracao-Final.md](documentos/parte3-containerizacao/Evidencias-Integracao-Final.md) | Teste do sistema completo no Compose: gateway roteando para as 7 aplicações, redes, bancos, persistência |
 | [documentos/parte3-containerizacao/Evidencias-Kubernetes.md](documentos/parte3-containerizacao/Evidencias-Kubernetes.md) | Testes no Kubernetes (Pods, Services, Ingress, escalabilidade) |
 
 ### 6.6 Limitações conhecidas

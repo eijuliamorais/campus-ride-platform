@@ -1,6 +1,6 @@
-# Evidências — Parte 3, Pessoa 3 (Docker Compose e infraestrutura)
+# Evidências — Parte 3: Docker Compose e infraestrutura
 
-Data dos testes: 14/11/2026 · Branch: `parte3/docker-compose-pessoa3` · Arquivo testado: `infrastructure/docker/docker-compose.yml`
+Data dos testes: 14/11/2026 · Arquivo testado: `infrastructure/docker/docker-compose.yml`
 
 Nos comandos abaixo, `$C` é:
 ```bash

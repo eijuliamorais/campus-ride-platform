@@ -18,7 +18,7 @@ Valem para todas as 8 imagens, para o Compose e o Kubernetes ficarem iguais.
 | Nome da imagem | `uniride/<nome>:dev` |
 | Contexto de build | a pasta da própria aplicação |
 
-## Imagens da Pessoa 1
+## Imagens do gateway, dos BFFs e do usuarios-service
 
 | Aplicação | Pasta | Imagem | Porta |
 | --- | --- | --- | --- |
@@ -85,7 +85,7 @@ curl -i http://localhost:8000/app/v1/status | grep -i x-correlation-id
 
 Limpar: `docker rm -f api-gateway bff-app bff-painel usuarios-service; docker network rm uniride-teste`.
 
-## Imagens da Pessoa 2
+## Imagens dos serviços de domínio
 
 | Aplicação | Pasta | Imagem | Porta (container) | Porta de teste (host) |
 | --- | --- | --- | --- | --- |
@@ -162,7 +162,7 @@ Os esqueletos só leem `SERVICE_NAME`; as demais variáveis já são entregues p
 
 No Kubernetes, os BFFs recebem as cinco URLs pelo ConfigMap `uniride-application-config`. Descrição completa das variáveis do `.env`: [infrastructure/docker/README.md](../infrastructure/docker/README.md).
 
-## Para o Kubernetes (Pessoa 4)
+## Para o Kubernetes
 
 - Probes dos serviços Python: `httpGet` em `/health`, porta `8000`.
 - Probes do gateway: `httpGet` em `/status/ready`, porta `8100`.
