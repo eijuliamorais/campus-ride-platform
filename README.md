@@ -63,6 +63,88 @@ A **UniRide** é uma plataforma de carona colaborativa que coloca a **verificaç
 * **Módulo de segurança ativa:** checagem de embarque, avaliação mútua ao final da viagem, compartilhamento de trajeto em tempo real e botão de emergência.
 * **Opção de grupos por afinidade/gênero:** possibilidade de restringir a busca de carona a grupos específicos (ex.: apenas mulheres), estratégia associada na literatura ao aumento da confiança entre usuários (SILVA; ANDRADE; MAIA, 2019).
 
+## 5. Arquitetura (Parte 2)
+
+Cinco microsserviços de domínio atrás de um API Gateway e de dois BFFs, um banco por serviço, comunicação assíncrona por Kafka com outbox, SAGA orquestrada para solicitar carona e CQRS na busca de caronas.
+
+Documento completo: [documentos/parte2-arquitetura/Arquitetura.md](documentos/parte2-arquitetura/Arquitetura.md).
+
+## 6. Containerização e orquestração (Parte 3)
+
+As oito aplicações do backend rodam em containers Docker. O Docker Compose sobe o sistema completo, com bancos, Kafka e Redis, e o Kubernetes executa as aplicações com Deployments, Services, Ingress e escalabilidade horizontal.
+
+### 6.1 Componentes
+
+| Grupo | Componentes | Tecnologia |
+| --- | --- | --- |
+| Entrada | `api-gateway` | Kong 3.9 (DB-less, rotas em `backend/api-gateway/kong.yml`) |
+| BFFs | `bff-app`, `bff-painel` | Python 3.12 + FastAPI |
+| Serviços de domínio | `usuarios-service`, `caronas-service`, `solicitacoes-service`, `viagens-service`, `avaliacoes-rateio-service` | Python 3.12 + FastAPI |
+| Bancos | 4 PostgreSQL (um com PostGIS) e 2 MongoDB | Somente no Docker Compose |
+| Mensageria e cache | Kafka (modo KRaft) e Redis | Somente no Docker Compose |
+
+As aplicações Python desta etapa são **esqueletos**: respondem a `GET /health` e a uma rota `.../status` por serviço, para demonstrar a infraestrutura. A lógica de negócio descrita na Parte 2 ainda não foi implementada.
+
+Padrões comuns às oito imagens: porta 8000 no container, usuário não root (UID 10001; Kong roda como usuário `kong`), `HEALTHCHECK` na própria imagem, build multi-stage nas imagens Python e nome de imagem `uniride/<aplicação>:dev`.
+
+### 6.2 Pré-requisitos
+
+- Docker com Docker Compose v2 (`docker compose version`). No Windows, Docker Desktop com WSL2.
+- Para o Kubernetes: cluster local (usamos o Kubernetes do Docker Desktop), `kubectl` e Traefik como Ingress Controller (instalado com Helm).
+- Portas livres no computador: 8000 e 8100 (Compose) e 8080 (port-forward do Kubernetes).
+
+### 6.3 Executar com Docker Compose
+
+```bash
+cp infrastructure/docker/.env.example infrastructure/docker/.env   # troque todos os CHANGE_ME (sem @ : / #)
+./scripts/start.sh      # constrói as 8 imagens e sobe os 16 containers
+./scripts/stop.sh       # para tudo, mantendo os dados
+./scripts/reset.sh      # apaga tudo, inclusive os volumes (pede confirmação)
+```
+
+Teste rápido, depois que todos os containers estiverem `healthy`:
+
+```bash
+docker compose -f infrastructure/docker/docker-compose.yml ps
+curl http://localhost:8100/status                  # Kong pronto
+curl http://localhost:8000/app/v1/status           # gateway -> bff-app
+curl http://localhost:8000/api/v1/caronas/status   # gateway -> caronas-service
+```
+
+Detalhes (redes, volumes, variáveis de ambiente, verificações): [infrastructure/docker/README.md](infrastructure/docker/README.md).
+
+### 6.4 Executar no Kubernetes
+
+```bash
+kubectl apply -k infrastructure/kubernetes/base
+kubectl get pods -n uniride
+kubectl port-forward -n traefik svc/traefik 8080:80          # em outro terminal
+curl -H "Host: uniride.local" http://localhost:8080/app/v1/status
+kubectl scale deployment bff-app --replicas=2 -n uniride     # escalabilidade
+```
+
+As imagens precisam estar disponíveis no cluster antes do `apply` (os Deployments usam `imagePullPolicy: Never`). Passo a passo completo, Ingress, ConfigMap, Secret e limitações: [documentos/parte3-containerizacao/Kubernetes.md](documentos/parte3-containerizacao/Kubernetes.md).
+
+### 6.5 Documentação e evidências
+
+| Documento | Conteúdo |
+| --- | --- |
+| [backend/README.md](backend/README.md) | Como construir, executar e testar cada uma das 8 imagens |
+| [infrastructure/docker/README.md](infrastructure/docker/README.md) | Docker Compose: containers, redes, volumes, portas e variáveis |
+| [documentos/parte3-containerizacao/Kubernetes.md](documentos/parte3-containerizacao/Kubernetes.md) | Implantação no Kubernetes |
+| [documentos/parte3-containerizacao/Evidencias-Dockerfiles-Gateway-BFFs-Usuarios.md](documentos/parte3-containerizacao/Evidencias-Dockerfiles-Gateway-BFFs-Usuarios.md) | Testes das imagens do gateway, BFFs e usuarios-service |
+| [documentos/parte3-containerizacao/Evidencias-Dockerfiles-Servicos-Dominio.md](documentos/parte3-containerizacao/Evidencias-Dockerfiles-Servicos-Dominio.md) | Testes das imagens dos 4 serviços de domínio |
+| [documentos/parte3-containerizacao/Evidencias-Docker-Compose.md](documentos/parte3-containerizacao/Evidencias-Docker-Compose.md) | Testes do Docker Compose (subida, bancos, redes, persistência) |
+| [documentos/parte3-containerizacao/Evidencias-Integracao-Final.md](documentos/parte3-containerizacao/Evidencias-Integracao-Final.md) | Teste do sistema completo no Compose: gateway roteando para as 7 aplicações, redes, bancos, persistência |
+| [documentos/parte3-containerizacao/Evidencias-Kubernetes.md](documentos/parte3-containerizacao/Evidencias-Kubernetes.md) | Testes no Kubernetes (Pods, Services, Ingress, escalabilidade) |
+
+### 6.6 Limitações conhecidas
+
+- Os serviços são esqueletos: não há lógica de negócio, SAGA, outbox nem uso real dos bancos, do Kafka e do Redis pelas aplicações.
+- Bancos, Kafka e Redis rodam apenas no Docker Compose; no Kubernetes ficam só as oito aplicações, e o Secret criado no cluster ainda não é referenciado pelos Deployments.
+- No Compose, os cinco serviços compartilham a rede `uniride-data`; o isolamento de cada banco ao seu serviço é feito por credenciais próprias, não por rede.
+- O gateway ainda não valida JWT nem aplica CORS; os limites de uso são por IP e em memória (`policy: local`).
+
 ## Referências
 
 * [*ANDIFES.* V Pesquisa Nacional de Perfil dos Graduandos das IFES. Associação Nacional dos Dirigentes das Instituições Federais de Ensino Superior, Brasília, 2019.](https://www.andifes.org.br/wp-content/uploads/2019/05/V-Pesquisa-Nacional-de-Perfil-Socioeconomico-e-Cultural-dos-as-Graduandos-as-das-IFES-2018.pdf)
