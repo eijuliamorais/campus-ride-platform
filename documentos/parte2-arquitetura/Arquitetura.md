@@ -82,23 +82,101 @@ Reação à falha de verificação:
 
 ```mermaid
 flowchart TB
-  APP["Aplicativo do estudante<br/>passageiro e motorista"] --> GW
-  PAINEL["Painel administrativo<br/>da universidade"] --> GW
-  GW["API Gateway<br/>JWT, limite de uso, roteamento"]
-  GW -->|"/app/v1"| BFFA["bff-app"]
-  GW -->|"/painel/v1"| BFFP["bff-painel"]
-  GW -->|"/api/v1/..."| SVC
-  BFFA --> SVC
-  BFFP --> SVC
-  subgraph SVC["Microsserviços de domínio (REST interno, /api/v1)"]
-    direction LR
-    USU["usuarios<br/>PostgreSQL"]
-    CAR["caronas<br/>PostgreSQL + PostGIS"]
-    SOL["solicitacoes<br/>PostgreSQL (escrita)<br/>MongoDB (leitura)<br/>orquestrador da SAGA"]
-    VIA["viagens<br/>MongoDB"]
-    AVR["avaliacoes-rateio<br/>PostgreSQL"]
-  end
-  SVC <-->|"eventos e comandos via outbox"| K[("Kafka")]
+    subgraph CLI["Clientes"]
+        APP["App do estudante<br/>passageiro e motorista<br/>HTTPS REST + SSE"]
+        PAINEL["Painel administrativo<br/>coordenacao e seguranca do campus<br/>HTTPS REST + SSE"]
+        LINK["Contato de emergencia<br/>link de viagem compartilhada<br/>somente leitura"]
+    end
+
+    subgraph GWL["Borda  rede uniride-edge  unica com portas publicadas"]
+        GW["API Gateway  Kong 3.9 DB-less<br/>proxy :8000  status :8100<br/>TLS, JWT, claim verificado, papel ADMIN<br/>rate limit, CORS, X-Correlation-Id<br/>roteamento por prefixo, sem regra de negocio"]
+    end
+
+    subgraph BFF["Backend for Frontend  stateless  sem banco  :8000"]
+        BFFA["bff-app  /app/v1<br/>payload compacto por tela<br/>compoe caronas, reputacao, solicitacoes<br/>SSE do estado da solicitacao"]
+        BFFP["bff-painel  /painel/v1<br/>indicadores agregados e anonimizados<br/>cache de 5 min<br/>SSE somente de alertas de emergencia"]
+    end
+
+    subgraph SVC["Microsservicos de dominio  REST interno /api/v1  :8000"]
+        direction LR
+        subgraph S1["usuarios-service"]
+            USU["Cadastro, login, JWT<br/>verificacao do vinculo<br/>perfil, veiculos, contatos<br/>JWKS /chaves-publicas"]
+            DBU[("PostgreSQL")]
+            USU --- DBU
+        end
+        subgraph S2["caronas-service"]
+            CAR["Oferta de carona<br/>controle de vagas<br/>livres, retidas, confirmadas"]
+            DBC[("PostgreSQL + PostGIS")]
+            CAR --- DBC
+        end
+        subgraph S3["solicitacoes-service"]
+            SOL["Pedidos de vaga<br/>ORQUESTRADOR DA SAGA<br/>projetor do modelo de leitura"]
+            DBSW[("PostgreSQL<br/>ESCRITA: solicitacao,<br/>saga_instance, outbox, inbox")]
+            DBSR[("MongoDB<br/>LEITURA CQRS:<br/>carona_compativel 2dsphere")]
+            SOL --- DBSW
+            SOL --- DBSR
+        end
+        subgraph S4["viagens-service"]
+            VIA["Partida e chegada<br/>check-in de embarque<br/>trajeto em tempo real<br/>botao de emergencia"]
+            DBV[("MongoDB replica set<br/>posicoes com TTL<br/>outbox transacional")]
+            VIA --- DBV
+        end
+        subgraph S5["avaliacoes-rateio-service"]
+            AVR["Avaliacao mutua e reputacao<br/>contribuicao estimada<br/>sem pagamento"]
+            DBA[("PostgreSQL")]
+            AVR --- DBA
+        end
+    end
+
+    subgraph INFRA["Infraestrutura compartilhada  rede uniride-data"]
+        KAFKA[["Kafka 3.9 KRaft  :9092<br/>eventos e comandos<br/>entrega at-least-once via outbox"]]
+        REDIS[("Redis 7  :6379<br/>contadores do gateway<br/>lista de revogacao de JWT")]
+    end
+
+    APP -->|"HTTPS"| GW
+    PAINEL -->|"HTTPS"| GW
+    LINK -->|"GET /api/v1/viagens-compartilhadas"| GW
+
+    GW -->|"/app/v1"| BFFA
+    GW -->|"/painel/v1"| BFFP
+    GW -->|"/api/v1/usuarios, verificacoes, sessoes"| USU
+    GW -->|"/api/v1/caronas"| CAR
+    GW -->|"/api/v1/solicitacoes, caronas-compativeis"| SOL
+    GW -->|"/api/v1/viagens, alertas-emergencia"| VIA
+    GW -->|"/api/v1/avaliacoes, reputacoes,<br/>contribuicoes, economia"| AVR
+    GW -.->|"JWKS em cache"| USU
+    GW --> REDIS
+
+    BFFA -->|"REST"| USU
+    BFFA -->|"REST"| CAR
+    BFFA -->|"REST"| SOL
+    BFFA -->|"REST"| VIA
+    BFFA -->|"REST"| AVR
+    BFFP -->|"REST /indicadores"| USU
+    BFFP -->|"REST /indicadores"| SOL
+    BFFP -->|"REST /indicadores"| VIA
+    BFFP -->|"REST /indicadores"| AVR
+    BFFA -.->|"SSE  consome solicitacoes.eventos"| KAFKA
+
+    USU <-->|"eventos"| KAFKA
+    CAR <-->|"eventos e comandos"| KAFKA
+    SOL <-->|"eventos, comandos da SAGA"| KAFKA
+    VIA <-->|"eventos"| KAFKA
+    AVR <-->|"eventos e comandos"| KAFKA
+    USU --> REDIS
+
+    classDef edge fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px,color:#0f172a
+    classDef bff fill:#ede9fe,stroke:#6d28d9,color:#0f172a
+    classDef svc fill:#dcfce7,stroke:#15803d,color:#0f172a
+    classDef saga fill:#fef9c3,stroke:#a16207,stroke-width:2px,color:#0f172a
+    classDef db fill:#ffedd5,stroke:#c2410c,color:#0f172a
+    classDef bus fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+    class GW edge
+    class BFFA,BFFP bff
+    class USU,CAR,VIA,AVR svc
+    class SOL saga
+    class DBU,DBC,DBSW,DBSR,DBV,DBA,REDIS db
+    class KAFKA bus
 ```
 
 ### Diagrama de comunicação entre serviços
@@ -107,38 +185,64 @@ Os serviços não se chamam por REST. Cada um publica fatos (eventos) no seu tó
 
 ```mermaid
 flowchart LR
-  USU["usuarios"]
-  CAR["caronas"]
-  SOL["solicitacoes<br/>(orquestrador)"]
-  VIA["viagens"]
-  AVR["avaliacoes-rateio"]
+    USU["usuarios-service"]
+    CAR["caronas-service"]
+    SOL["solicitacoes-service<br/>ORQUESTRADOR + projetor CQRS"]
+    VIA["viagens-service"]
+    AVR["avaliacoes-rateio-service"]
 
-  USU --> TU[("usuarios.eventos")]
-  TU --> CAR
-  TU --> SOL
-  TU --> VIA
+    subgraph EV["Topicos de eventos  fatos publicados via outbox  chave = aggregateId"]
+        direction TB
+        TU{{"usuarios.eventos<br/>UsuarioCadastrado, UsuarioVerificado,<br/>UsuarioSuspenso, PerfilAtualizado"}}
+        TC{{"caronas.eventos<br/>CaronaOfertada, CaronaAtualizada, CaronaCancelada,<br/>VagaRetida, VagaRecusada, VagaConfirmada,<br/>ConfirmacaoVagaFalhou, VagaLiberada"}}
+        TS{{"solicitacoes.eventos<br/>SolicitacaoCriada, SolicitacaoConfirmada,<br/>SolicitacaoRecusada, SolicitacaoCancelada"}}
+        TV{{"viagens.eventos<br/>ViagemIniciada, ViagemConcluida,<br/>CheckinEmbarqueRealizado, AlertaEmergenciaAcionado"}}
+        TA{{"avaliacoes-rateio.eventos<br/>ContribuicaoEstimadaRegistrada, RegistroContribuicaoFalhou,<br/>ContribuicaoCancelada, AcertoRegistrado,<br/>AvaliacaoRegistrada, ReputacaoAtualizada"}}
+    end
 
-  CAR --> TC[("caronas.eventos")]
-  TC --> SOL
-  TC --> VIA
-  TC --> AVR
+    subgraph CMD["Topicos de comandos  enviados somente pelo orquestrador"]
+        direction TB
+        TCC{{"caronas.comandos<br/>ReservarVaga, ConfirmarVaga, LiberarVaga"}}
+        TAC{{"avaliacoes-rateio.comandos<br/>RegistrarContribuicaoEstimada, CancelarContribuicao"}}
+    end
 
-  SOL --> TS[("solicitacoes.eventos")]
-  TS --> VIA
-  TS --> AVR
+    USU ==>|"publica"| TU
+    CAR ==>|"publica"| TC
+    SOL ==>|"publica"| TS
+    VIA ==>|"publica"| TV
+    AVR ==>|"publica"| TA
 
-  VIA --> TV[("viagens.eventos")]
-  TV --> USU
-  TV --> CAR
-  TV --> SOL
-  TV --> AVR
+    TU -->|"suspensao: cancela caronas abertas"| CAR
+    TU -->|"suspensao: cancela pendentes<br/>PerfilAtualizado: leitura CQRS"| SOL
+    TU -->|"contatos de emergencia<br/>copia local"| VIA
 
-  AVR --> TA[("avaliacoes-rateio.eventos")]
-  TA --> SOL
+    TC -->|"VagaRetida, VagaConfirmada, VagaLiberada:<br/>resposta da SAGA e vagasLivres"| SOL
+    TC -->|"CaronaOfertada:<br/>habilita a viagem"| VIA
+    TC -->|"rota e distancia<br/>para o rateio"| AVR
 
-  SOL -.->|"comandos da SAGA"| CMD[("caronas.comandos<br/>avaliacoes-rateio.comandos")]
-  CMD -.-> CAR
-  CMD -.-> AVR
+    TS -->|"SolicitacaoConfirmada:<br/>inscreve passageiro, gera codigo"| VIA
+    TS -->|"SolicitacaoConfirmada:<br/>habilita avaliacao"| AVR
+
+    TV -->|"ViagemConcluida:<br/>contador de viagens"| USU
+    TV -->|"ViagemIniciada:<br/>carona sai da busca"| CAR
+    TV -->|"ViagemConcluida:<br/>indicadores e leitura"| SOL
+    TV -->|"ViagemConcluida:<br/>libera avaliacao e acerto"| AVR
+
+    TA -->|"respostas da SAGA e<br/>ReputacaoAtualizada: nota na busca"| SOL
+
+    SOL -.->|"comando"| TCC
+    SOL -.->|"comando"| TAC
+    TCC -.->|"consome"| CAR
+    TAC -.->|"consome"| AVR
+
+    classDef svc fill:#dcfce7,stroke:#15803d,color:#0f172a
+    classDef saga fill:#fef9c3,stroke:#a16207,stroke-width:2px,color:#0f172a
+    classDef ev fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+    classDef cmd fill:#ffedd5,stroke:#c2410c,color:#0f172a
+    class USU,CAR,VIA,AVR svc
+    class SOL saga
+    class TU,TC,TS,TV,TA ev
+    class TCC,TAC cmd
 ```
 
 ### Regras de comunicação
@@ -718,22 +822,55 @@ As mensagens entre serviços trafegam pelo Kafka e são publicadas via outbox.
 
 ```mermaid
 sequenceDiagram
-  autonumber
-  actor P as Passageiro (aplicativo)
-  participant S as solicitacoes-service (orquestrador)
-  participant C as caronas-service
-  participant R as avaliacoes-rateio-service
-  P->>S: POST /api/v1/solicitacoes com Idempotency-Key
-  S->>S: T1 grava Solicitação PENDENTE, SAGA INICIADA e outbox na mesma transação
-  S-->>P: 202 Accepted (Location /api/v1/solicitacoes/7)
-  S->>C: ReservarVaga
-  C-->>S: VagaRetida (vaga retida por 120 s)
-  S->>R: RegistrarContribuicaoEstimada
-  R-->>S: ContribuicaoEstimadaRegistrada
-  S->>C: ConfirmarVaga
-  C-->>S: VagaConfirmada
-  S->>S: T5 Solicitação CONFIRMADA, SAGA CONCLUIDA
-  S-->>P: SSE: solicitação confirmada
+    autonumber
+    actor P as Passageiro (app)
+    participant GW as API Gateway
+    participant S as solicitacoes-service (orquestrador)
+    participant K as Kafka (via outbox)
+    participant C as caronas-service
+    participant R as avaliacoes-rateio-service
+
+    P->>GW: POST /api/v1/solicitacoes com Idempotency-Key
+    GW->>GW: valida JWT, claim verificado e rate limit
+    GW->>S: encaminha requisicao
+    rect rgb(254, 249, 195)
+        Note over S: T1 transacao local unica:<br/>Solicitacao PENDENTE + saga INICIADA<br/>+ outbox ReservarVaga
+    end
+    S-->>GW: 202 Accepted
+    GW-->>P: 202 Accepted, Location /api/v1/solicitacoes/7
+
+    S->>K: relay publica ReservarVaga (caronas.comandos)
+    K->>C: ReservarVaga
+    rect rgb(220, 252, 231)
+        Note over C: T2 valida vaga, carona aberta e publico<br/>retem a vaga por 120 s + outbox
+    end
+    C->>K: VagaRetida (caronas.eventos)
+    K->>S: VagaRetida
+    Note over S: SAGA: INICIADA para VAGA_RETIDA
+
+    S->>K: RegistrarContribuicaoEstimada (avaliacoes-rateio.comandos)
+    K->>R: RegistrarContribuicaoEstimada
+    rect rgb(220, 252, 231)
+        Note over R: T3 calcula distancia x custo por km / (vagas + 1)<br/>grava contribuicao ESTIMADA, sem mover dinheiro + outbox
+    end
+    R->>K: ContribuicaoEstimadaRegistrada
+    K->>S: ContribuicaoEstimadaRegistrada
+    Note over S: SAGA: VAGA_RETIDA para CONTRIBUICAO_REGISTRADA
+
+    S->>K: ConfirmarVaga (caronas.comandos)
+    K->>C: ConfirmarVaga
+    rect rgb(220, 252, 231)
+        Note over C: T4 PIVO: RETIDA para CONFIRMADA<br/>depois disso nao ha volta
+    end
+    C->>K: VagaConfirmada
+    K->>S: VagaConfirmada
+
+    rect rgb(254, 249, 195)
+        Note over S: T5 Solicitacao CONFIRMADA, SAGA CONCLUIDA<br/>+ outbox SolicitacaoConfirmada
+    end
+    S-->>P: SSE: solicitacao confirmada
+    S->>K: SolicitacaoConfirmada (solicitacoes.eventos)
+    Note over K: viagens-service inscreve o passageiro e gera o codigo de embarque<br/>fora da SAGA, pode ser refeito sem desfazer nada
 ```
 
 ### Diagrama de sequência: falha na confirmação, com compensações
@@ -742,29 +879,60 @@ O passageiro demorou a ser processado e a retenção da vaga expirou. Quando o o
 
 ```mermaid
 sequenceDiagram
-  autonumber
-  actor P as Passageiro (aplicativo)
-  participant S as solicitacoes-service (orquestrador)
-  participant C as caronas-service
-  participant R as avaliacoes-rateio-service
-  P->>S: POST /api/v1/solicitacoes com Idempotency-Key
-  S-->>P: 202 Accepted (solicitação PENDENTE)
-  S->>C: ReservarVaga
-  C-->>S: VagaRetida
-  S->>R: RegistrarContribuicaoEstimada
-  R-->>S: ContribuicaoEstimadaRegistrada
-  S->>C: ConfirmarVaga
-  C-->>S: ConfirmacaoVagaFalhou (RETENCAO_EXPIRADA)
-  Note over S: SAGA vai para COMPENSANDO. Passos concluídos a desfazer: T3 e T2
-  S->>R: CancelarContribuicao (compensação C3)
-  R-->>S: ContribuicaoCancelada
-  S->>C: LiberarVaga (compensação C2)
-  C-->>S: VagaLiberada (sem efeito se a retenção já expirou)
-  Note over C: modelo de leitura volta a exibir a vaga
-  S->>S: C1 Solicitação RECUSADA (motivo RETENCAO_EXPIRADA), SAGA COMPENSADA
-  S-->>P: SSE: solicitação recusada
-  P->>S: GET /api/v1/solicitacoes/7
-  S-->>P: 200 situacao RECUSADA
+    autonumber
+    actor P as Passageiro (app)
+    participant S as solicitacoes-service (orquestrador)
+    participant K as Kafka (via outbox)
+    participant C as caronas-service
+    participant R as avaliacoes-rateio-service
+
+    P->>S: POST /api/v1/solicitacoes com Idempotency-Key
+    Note over S: T1 Solicitacao PENDENTE, SAGA INICIADA
+    S-->>P: 202 Accepted
+
+    S->>K: ReservarVaga
+    K->>C: ReservarVaga
+    C->>K: VagaRetida (retencao de 120 s)
+    K->>S: VagaRetida
+    Note over S: SAGA VAGA_RETIDA
+
+    S->>K: RegistrarContribuicaoEstimada
+    K->>R: RegistrarContribuicaoEstimada
+    R->>K: ContribuicaoEstimadaRegistrada
+    K->>S: ContribuicaoEstimadaRegistrada
+    Note over S: SAGA CONTRIBUICAO_REGISTRADA
+
+    Note over C: a retencao de 120 s expirou<br/>antes da confirmacao
+    S->>K: ConfirmarVaga
+    K->>C: ConfirmarVaga
+    C->>K: ConfirmacaoVagaFalhou (RETENCAO_EXPIRADA)
+    K->>S: ConfirmacaoVagaFalhou
+
+    rect rgb(254, 226, 226)
+        Note over S: SAGA COMPENSANDO<br/>passos a desfazer em ordem inversa: T3, depois T2, depois T1<br/>comandos gravados na outbox junto com o estado
+    end
+
+    S->>K: CancelarContribuicao (compensacao C3)
+    K->>R: CancelarContribuicao
+    Note over R: contribuicao vai para CANCELADA<br/>registro mantido para auditoria<br/>idempotente
+    R->>K: ContribuicaoCancelada
+    K->>S: ContribuicaoCancelada
+
+    S->>K: LiberarVaga (compensacao C2)
+    K->>C: LiberarVaga
+    Note over C: sem efeito, a retencao ja expirou<br/>idempotente e segura mesmo sem o passo original
+    C->>K: VagaLiberada
+    K->>S: VagaLiberada
+    Note over C,K: o modelo de leitura volta a exibir a vaga
+
+    rect rgb(254, 226, 226)
+        Note over S: C1 Solicitacao RECUSADA (motivo RETENCAO_EXPIRADA)<br/>SAGA COMPENSADA
+    end
+    S-->>P: SSE: solicitacao recusada
+    P->>S: GET /api/v1/solicitacoes/7
+    S-->>P: 200 situacao RECUSADA, app sugere a proxima carona
+
+    Note over S,R: Variante timeout: se qualquer passo ficar 10 s sem resposta,<br/>o orquestrador reenvia com backoff e depois compensa o passo em duvida<br/>e todos os anteriores, terminando RECUSADA com motivo TEMPO_ESGOTADO
 ```
 ---
 

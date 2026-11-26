@@ -79,6 +79,7 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: caronas-service
+      RETENCAO_SEGUNDOS: ${RETENCAO_SEGUNDOS:-120}
       DATABASE_URL: postgresql://${CARONAS_DB_USER}:${CARONAS_DB_PASSWORD}@postgres-caronas:5432/${CARONAS_DB_NAME}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
@@ -93,6 +94,7 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: solicitacoes-service
+      SAGA_TIMEOUT_SEGUNDOS: ${SAGA_TIMEOUT_SEGUNDOS:-10}
       DATABASE_URL: postgresql://${SOLICITACOES_DB_USER}:${SOLICITACOES_DB_PASSWORD}@postgres-solicitacoes:5432/${SOLICITACOES_DB_NAME}
       MONGODB_URL: mongodb://${SOLICITACOES_MONGO_USER}:${SOLICITACOES_MONGO_PASSWORD}@mongo-solicitacoes:27017/${SOLICITACOES_MONGO_DB}?authSource=admin
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -123,6 +125,7 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: avaliacoes-rateio-service
+      CUSTO_POR_KM: ${CUSTO_POR_KM:-0.90}
       DATABASE_URL: postgresql://${AVALIACOES_DB_USER}:${AVALIACOES_DB_PASSWORD}@postgres-avaliacoes:5432/${AVALIACOES_DB_NAME}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
