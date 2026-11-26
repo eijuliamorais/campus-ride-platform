@@ -1,0 +1,11 @@
+# Python 3.14.10. Provedor: Google Gemini (plano gratuito do Google AI Studio).
+# Sem Chroma: o chromadb ainda importa o Pydantic v1, que não funciona no 3.14.
+fastapi
+uvicorn[standard]
+httpx
+python-dotenv
+numpy
+langchain>=1.0
+langchain-core>=1.0
+langchain-google-genai>=4.0
+langchain-text-splitters>=1.0

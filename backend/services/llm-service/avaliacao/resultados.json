@@ -1,0 +1,90 @@
+[
+  {
+    "tipo": "Fato direto da base",
+    "pergunta": "Com quanta antecedência posso cancelar uma carona sem penalidade?",
+    "esperado": "Passageiro: até 2 horas antes da saída (motorista: até 4 horas)",
+    "fontes_esperadas": [
+      "regras_cancelamento.md",
+      "faq.md"
+    ],
+    "fontes_recuperadas": [
+      "regras_cancelamento.md",
+      "regras_cancelamento.md",
+      "faq.md",
+      "regras_cancelamento.md"
+    ],
+    "recuperacao": "Sim (1º lugar)",
+    "sem_rag": "No UniRide, você pode cancelar uma carona sem nenhuma penalidade até 2 horas antes do horário agendado. Cancelamentos de última hora podem afetar sua reputação na comunidade da UFLA. Em caso de imprevistos maiores, recomendamos avisar o motorista ou passageiro pelo chat o mais rápido possível.",
+    "com_rag": "O passageiro pode cancelar sem penalidade até 2 horas antes do horário de saída. Já o motorista pode cancelar a carona sem penalidade até 4 horas antes."
+  },
+  {
+    "tipo": "Fato específico (nomes de locais)",
+    "pergunta": "Onde ficam os pontos de encontro dentro do campus?",
+    "esperado": "Portaria Principal, Praça do RU, Biblioteca Universitária e Centro de Convivência",
+    "fontes_esperadas": [
+      "pontos_de_encontro.md",
+      "faq.md"
+    ],
+    "fontes_recuperadas": [
+      "pontos_de_encontro.md",
+      "pontos_de_encontro.md",
+      "pontos_de_encontro.md",
+      "faq.md"
+    ],
+    "recuperacao": "Sim (1º lugar)",
+    "sem_rag": "Os principais pontos de encontro do UniRide na UFLA ficam em locais estratégicos, como a praça de alimentação do campus histórico, o Pavilhão de Aulas (AE) e em frente ao Doutorado. Você também pode combinar um local específico diretamente com o motorista pelo chat do aplicativo. Boa viagem!",
+    "com_rag": "Os 4 pontos oficiais de encontro dentro do câmpus da UFLA são: a Portaria Principal (em frente à guarita), a Praça do Restaurante Universitário (RU), a Biblioteca Universitária e o Centro de Convivência. O embarque dentro do câmpus só pode ser feito nesses locais."
+  },
+  {
+    "tipo": "Junta dois documentos",
+    "pergunta": "O que acontece se eu cancelar em cima da hora várias vezes?",
+    "esperado": "Cada cancelamento gera 1 advertência; 3 em 30 dias = 7 dias sem reservar; 2ª suspensão em 90 dias = 30 dias",
+    "fontes_esperadas": [
+      "regras_cancelamento.md",
+      "avaliacoes_e_penalidades.md",
+      "faq.md"
+    ],
+    "fontes_recuperadas": [
+      "avaliacoes_e_penalidades.md",
+      "regras_cancelamento.md",
+      "regras_cancelamento.md",
+      "regras_cancelamento.md"
+    ],
+    "recuperacao": "Sim (1º lugar)",
+    "sem_rag": "No UniRide, cancelamentos de última hora prejudicam a comunidade e podem resultar na suspensão temporária da sua conta. Para manter uma boa reputação na UFLA, cancele apenas em caso de extrema necessidade e com a maior antecedência possível. Se precisar de Ajuda com alguma viagem específica, é só me chamar!",
+    "com_rag": "Cancelamentos fora do prazo geram advertências que valem por 30 dias. Acumular 3 advertências nesse período resulta na suspensão de novas reservas e ofertas por 7 dias. A reincidência pode levar a suspensões mais longas de 30 dias ou até mesmo à análise para desligamento da plataforma."
+  },
+  {
+    "tipo": "Palavras diferentes das do texto",
+    "pergunta": "Se eu desistir da viagem uma hora antes, dá problema?",
+    "esperado": "Sim: menos de 2 horas antes gera 1 advertência (o cancelamento é aceito)",
+    "fontes_esperadas": [
+      "regras_cancelamento.md",
+      "faq.md"
+    ],
+    "fontes_recuperadas": [
+      "regras_cancelamento.md",
+      "regras_cancelamento.md",
+      "regras_cancelamento.md",
+      "faq.md"
+    ],
+    "recuperacao": "Sim (1º lugar)",
+    "sem_rag": "Desistir uma hora antes prejudica bastante o motorista e o colega que contavam com a carona. Como isso gera transtornos de última hora, pode afetar sua reputação na nossa comunidade. Tente avisar o motorista o quanto antes pelo chat do app se houver imprevistos.",
+    "com_rag": "Sim, cancelar uma solicitação confirmada com menos de 2 horas de antecedência gera 1 advertência no seu perfil. No entanto, o cancelamento não gerará penalidade se for justificado por emergência médica, acidente ou cancelamento de aula ou prova comunicado pela universidade. Para isso, você deve enviar a justificativa pelo formulário \"Contestar penalidade\" em até 5 dias úteis, junto com um comprovante."
+  },
+  {
+    "tipo": "Fora da base",
+    "pergunta": "Posso levar meu cachorro na carona?",
+    "esperado": "Não está na base: deve dizer que não sabe",
+    "fontes_esperadas": [],
+    "fontes_recuperadas": [
+      "seguranca.md",
+      "seguranca.md",
+      "faq.md",
+      "pontos_de_encontro.md"
+    ],
+    "recuperacao": "n/a (fora da base)",
+    "sem_rag": "No UniRide, a permissão para levar animais de estimação depende exclusivamente do motorista da carona. Recomendamos que você envie uma mensagem ao condutor antes de confirmar a viagem para checar a disponibilidade e garantir que o pet seja bem-vindo. Boa viagem com seu peludo!",
+    "com_rag": "Não sei, pois essa informação não consta no contexto fornecido pela plataforma."
+  }
+]

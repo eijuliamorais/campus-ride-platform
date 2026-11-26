@@ -133,6 +133,30 @@ services:
       kafka: { condition: service_healthy }
     networks: [uniride-internal, uniride-data]
 
+  llm-service:
+    build: { context: ../../backend/services/llm-service, dockerfile: Dockerfile }
+    image: uniride/llm-service:dev
+    container_name: llm-service
+    restart: unless-stopped
+    # Chave do Gemini e modelos vêm do .env do próprio serviço (não vai para o Git).
+    env_file:
+      - path: ../../backend/services/llm-service/.env
+        required: false   # sem o .env o resto do sistema sobe normalmente
+    environment:
+      SERVICE_NAME: llm-service
+      CARONAS_URL: http://caronas-service:8000
+      USUARIOS_URL: http://usuarios-service:8000
+      SOLICITACOES_URL: http://solicitacoes-service:8000
+      VETORES_DIR: /data/vetores
+    volumes: [llm_vetores_data:/data/vetores]   # banco vetorial próprio do llm-service
+    ports:
+      - "${LLM_ADMIN_PORT:-8010}:8010"           # tela /chat e /admin/simular-falha na demo
+    depends_on:
+      caronas-service: { condition: service_healthy }
+    # uniride-internal: gateway, caronas, usuarios e solicitacoes. uniride-edge: saída para a API do Gemini
+    # (as redes internal: true não têm acesso à internet).
+    networks: [uniride-edge, uniride-internal]
+
   postgres-usuarios:
     image: postgres:16-alpine
     container_name: postgres-usuarios
@@ -279,6 +303,7 @@ volumes:
   mongo_viagens_data:
   kafka_data:
   redis_data:
+  llm_vetores_data:
 
 networks:
   uniride-edge: { driver: bridge }
