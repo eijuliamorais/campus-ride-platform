@@ -145,6 +145,17 @@ As imagens precisam estar disponíveis no cluster antes do `apply` (os Deploymen
 - No Compose, os cinco serviços compartilham a rede `uniride-data`; o isolamento de cada banco ao seu serviço é feito por credenciais próprias, não por rede.
 - O gateway ainda não valida JWT nem aplica CORS; os limites de uso são por IP e em memória (`policy: local`).
 
+## 7. Sistema distribuído funcional (6.1)
+
+Os serviços agora têm lógica real: outbox, Kafka, SAGA orquestrada com compensação e CQRS na busca, cada um com o próprio banco. As limitações da seção 6.6 sobre esqueletos não valem mais para `usuarios`, `caronas`, `solicitacoes`, `viagens`, `avaliacoes-rateio` e `bff-app`.
+
+```bash
+./scripts/start.sh
+./scripts/demo-6.1.sh
+```
+
+Documento completo, com o roteiro e os cenários de falha: [documentos/parte4-sistema-funcional/README.md](documentos/parte4-sistema-funcional/README.md).
+
 ## Referências
 
 * [*ANDIFES.* V Pesquisa Nacional de Perfil dos Graduandos das IFES. Associação Nacional dos Dirigentes das Instituições Federais de Ensino Superior, Brasília, 2019.](https://www.andifes.org.br/wp-content/uploads/2019/05/V-Pesquisa-Nacional-de-Perfil-Socioeconomico-e-Cultural-dos-as-Graduandos-as-das-IFES-2018.pdf)
