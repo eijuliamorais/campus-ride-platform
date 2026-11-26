@@ -1,6 +1,6 @@
 """Recuperação (RAG): devolve os trechos da base mais parecidos com a pergunta.
 
-Contrato com a Pessoa B (não mudar as assinaturas):
+Contrato com a chain do serviço (não mudar as assinaturas):
   get_retriever(k)    -> retriever do LangChain (aceita .invoke(pergunta))
   formatar_docs(docs) -> texto com "[fonte]\\ntrecho" para colocar no prompt
 """

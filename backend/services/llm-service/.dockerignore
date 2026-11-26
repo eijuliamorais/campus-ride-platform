@@ -1,0 +1,19 @@
+# Ambiente, caches e base vetorial local (o container gera a sua no volume)
+.venv
+venv
+vetores
+**/__pycache__
+**/*.py[cod]
+
+# Segredos: entram por env_file no compose, nunca na imagem
+.env
+.env.*
+
+# Não usados dentro da imagem
+avaliacao
+medicao
+.git
+.gitignore
+.python-version
+Dockerfile
+.dockerignore

@@ -140,3 +140,19 @@ services:
       - name: bff-painel
         paths: [/painel/v1]
         strip_path: false
+
+  # ---------------- Parte 6.2: llm-service (Assistente de Caronas) ----------------
+  # Só a rota do assistente passa pelo gateway; /admin/simular-falha fica fora.
+  - name: llm-service
+    url: http://llm-service:8010
+    connect_timeout: 5000
+    read_timeout: 60000
+    plugins:
+      - name: rate-limiting
+        # Cada pergunta custa uma ou duas chamadas ao LLM: limite mais baixo.
+        config: { minute: 20, limit_by: ip, policy: local }
+    routes:
+      - name: assistente
+        methods: [POST]
+        paths: [/api/v1/assistente]
+        strip_path: false
