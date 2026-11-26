@@ -6,8 +6,8 @@ Este diretório contém a documentação e os detalhes da demonstração em víd
 
 Devido às restrições de tamanho de ficheiro do GitHub (limite de 100 MB para ficheiros individuais), o vídeo completo de funcionamento e explicação do sistema está hospedado externamente no Google Drive:
 
-🔗 **[Clique aqui para assistir ao vídeo de demonstração no Google Drive](https://drive.google.com/file/d/1Tpe8re2BRoBDICStjkjC8v7jWB1slgQf/view?usp=sharing)**
-
+https://drive.google.com/file/d/1YuCdNqPSNaOZ-up-pXsgisEtZxiRkLxf/view?usp=drive_link
+https://drive.google.com/file/d/1nzPoC4F5OmQyoJqzc2oCgGD5NBAGOe5v/view?usp=drive_link
 ---
 
 ## 📌 Conteúdo da Apresentação
